@@ -7,9 +7,12 @@
 
 const char *ssid = "";
 const char *password = "";
-ESP8266WebServer server(80);
 
+ESP8266WebServer server(80);
 RTC_DS1307 rtc;
+
+static const unsigned long SCHEDULE_INTERVAL = 1000;
+static unsigned long currentScheduleTime = 0;
 
 typedef struct
 {
@@ -17,12 +20,44 @@ typedef struct
   uint8_t valveId;
 } valve;
 
-const valve valves[] {
+const valve valves[4] {
   {1, D1},
   {2, D2},
   {3, D3},
   {4, D4}
 };
+
+
+typedef struct
+{
+  int valveId;
+  uint8_t fromHour;
+  uint8_t fromMinute;
+  uint8_t toHour;
+  uint8_t toMinute;
+} valveSchedule;
+
+valveSchedule schedules[4] {
+  {1, 0, 0, 0, 0},
+  {2, 0, 0, 0, 0},
+  {3, 0, 0, 0, 0},
+  {4, 0, 0, 0, 0}
+};
+
+typedef struct
+{
+  int valveId;
+  uint64_t from;
+  uint64_t to;
+} valveTimer;
+
+valveTimer timers[4] {
+  {1, 0, 0},
+  {2, 0, 0},
+  {3, 0, 0},
+  {4, 0, 0}
+};
+
 
 void setup()
 {
@@ -58,6 +93,12 @@ void setup()
   server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
+
+  server.on("/timer", HTTP_POST, onTimerRoute);
+
+  server.on("/schedule", HTTP_GET, onScheduleGetRoute);
+  server.on("/schedule", HTTP_POST, onSchedulePostRoute);
+
   server.onNotFound(onRouteNotFound);
 
   server.begin();
@@ -66,6 +107,18 @@ void setup()
 void loop()
 {
   server.handleClient();
+
+  if (currentScheduleTime > SCHEDULE_INTERVAL) {
+    DateTime now = rtc.now();
+    uint8_t unixtime = now.unixtime();
+
+    checkValveSchedule(unixtime);
+    checkValveTimers(unixtime);
+
+    currentScheduleTime = 0;
+  } else {
+    currentScheduleTime += 1;
+  }
 }
 
 // Routing handlers
@@ -74,6 +127,40 @@ void onRootRoute()
   server.send(200, "text/html", APP_HTML);
 }
 
+void checkValveSchedule(uint8_t unixtime) {
+  DateTime now = rtc.now();
+
+  for (uint8_t i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
+  {
+
+    DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0);
+    DateTime to = DateTime(now.year(), now.month(), now.day(), schedules[i].toHour, schedules[i].toMinute, 0);
+
+    pinMode(schedules[i].valveId, OUTPUT);
+
+    if (from.unixtime() > unixtime && to.unixtime() < unixtime) {
+      digitalWrite(timers[i].valveId, HIGH);
+    } else {
+      digitalWrite(timers[i].valveId, LOW);
+    }
+  }
+}
+
+void checkValveTimers(uint8_t unixtime) {
+  for (uint8_t i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
+  {
+    pinMode(timers[i].valveId, OUTPUT);
+    if (timers[i].from > unixtime && timers[i].to < unixtime) {
+      digitalWrite(timers[i].valveId, HIGH);
+    } else {
+      digitalWrite(timers[i].valveId, LOW);
+    }
+  }
+}
+
+/*
+  Valve settings
+*/
 void onValveStateRoute()
 {
   String valveId = server.arg("valveId");
@@ -104,11 +191,17 @@ void onValveStateChangeOffRoute()
   server.send(200, "text/plain", "off");
 }
 
+/*
+  System - Network settings
+*/
 void onSystemIpRoute()
 {
   server.send(200, "text/plain", WiFi.localIP().toString());
 }
 
+/*
+  System - Time settings
+*/
 void onSystemTimeSetRoute()
 {
   uint8_t year = server.arg("year").toInt();
@@ -129,6 +222,39 @@ void onSystemTimeGetRoute()
   DateTime now = rtc.now();
   server.send(200, "text/plain", String(now.unixtime()));
 }
+
+/*
+  Timers
+*/
+void onTimerRoute()
+{
+  uint8_t valveId = server.arg("valveId").toInt();
+  uint8_t duration = server.arg("duration").toInt();
+  DateTime now = rtc.now();
+  uint8_t unixtime = now.unixtime();
+
+  timers[valveId].from = unixtime;
+  timers[valveId].to = unixtime + (duration * 100);
+}
+
+/*
+  Schedule
+*/
+void onScheduleGetRoute()
+{
+  server.send(501, "text/plain", "Not implemented :(");
+}
+
+void onSchedulePostRoute()
+{
+  uint8_t valveId = server.arg("valveId").toInt();
+
+  schedules[valveId].fromHour = server.arg("fromHour").toInt();
+  schedules[valveId].fromMinute = server.arg("fromMinute").toInt();
+  schedules[valveId].toHour = server.arg("toHour").toInt();
+  schedules[valveId].toMinute = server.arg("toMinutemHour").toInt();
+}
+
 
 void onRouteNotFound()
 {
