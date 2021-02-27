@@ -17,7 +17,7 @@ static unsigned long currentScheduleTime = 0;
 typedef struct
 {
   int id;
-  uint8_t valveId;
+  uint8_t pinId;
 } valve;
 
 const valve valves[4] {
