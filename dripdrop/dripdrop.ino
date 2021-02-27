@@ -27,7 +27,6 @@ const valve valves[4] {
   {4, D4}
 };
 
-
 typedef struct
 {
   int valveId;
@@ -61,16 +60,19 @@ valveTimer timers[4] {
 
 void setup()
 {
-  for (uint8_t i = 0; i < sizeof(valves) / sizeof(valve); ++i)
+  Serial.begin(9600);
+
+  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
   {
-    pinMode(valves[i].valveId, OUTPUT);
-    digitalWrite(valves[i].valveId, LOW);
+    pinMode(valves[i].pinId, OUTPUT);
+    digitalWrite(valves[i].pinId, LOW);
   }
 
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED)
   {
+    Serial.println("Checking WiFi");
     delay(1000);
   }
 
@@ -87,14 +89,17 @@ void setup()
   }
 
   server.on("/", HTTP_GET, onRootRoute);
+
   server.on("/system/ip", HTTP_GET, onSystemIpRoute);
   server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
   server.on("/system/time", HTTP_POST, onSystemTimeSetRoute);
+
   server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
 
-  server.on("/timer", HTTP_POST, onTimerRoute);
+  server.on("/timer", HTTP_GET, onTimerGetRoute);
+  server.on("/timer", HTTP_POST, onTimerPostRoute);
 
   server.on("/schedule", HTTP_GET, onScheduleGetRoute);
   server.on("/schedule", HTTP_POST, onSchedulePostRoute);
@@ -109,6 +114,8 @@ void loop()
   server.handleClient();
 
   if (currentScheduleTime > SCHEDULE_INTERVAL) {
+    Serial.println("Check schedules and timers");
+
     DateTime now = rtc.now();
     uint8_t unixtime = now.unixtime();
 
@@ -130,7 +137,7 @@ void onRootRoute()
 void checkValveSchedule(uint8_t unixtime) {
   DateTime now = rtc.now();
 
-  for (uint8_t i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
+  for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
   {
 
     DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0);
@@ -147,7 +154,7 @@ void checkValveSchedule(uint8_t unixtime) {
 }
 
 void checkValveTimers(uint8_t unixtime) {
-  for (uint8_t i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
+  for (int i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
   {
     pinMode(timers[i].valveId, OUTPUT);
     if (timers[i].from > unixtime && timers[i].to < unixtime) {
@@ -163,18 +170,19 @@ void checkValveTimers(uint8_t unixtime) {
 */
 void onValveStateRoute()
 {
-  String valveId = server.arg("valveId");
-  uint8_t valvePin = valves[valveId.toInt()].valveId;
+  int valveId = server.arg("valveId").toInt();
+  uint8_t valvePin = valves[valveId].pinId;
   pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
 
-  server.send(200, "text/plain", val + "0");
+  server.send(200, "text/plain", String(val));
 }
 
 void onValveStateChangeOnRoute()
 {
-  String valveId = server.arg("valveId");
-  uint8_t valvePin = valves[valveId.toInt()].valveId;
+  int valveId = server.arg("valveId").toInt();
+  Serial.println(valveId);
+  uint8_t valvePin = valves[valveId].pinId;
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
 
@@ -183,8 +191,9 @@ void onValveStateChangeOnRoute()
 
 void onValveStateChangeOffRoute()
 {
-  String valveId = server.arg("valveId");
-  uint8_t valvePin = valves[valveId.toInt()].valveId;
+  int valveId = server.arg("valveId").toInt();
+  uint8_t valvePin = valves[valveId].pinId;
+  Serial.println(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
 
@@ -226,7 +235,12 @@ void onSystemTimeGetRoute()
 /*
   Timers
 */
-void onTimerRoute()
+void onTimerGetRoute()
+{
+  server.send(501, "text/plain", "Not implemented :(");
+}
+
+void onTimerPostRoute()
 {
   uint8_t valveId = server.arg("valveId").toInt();
   uint8_t duration = server.arg("duration").toInt();
