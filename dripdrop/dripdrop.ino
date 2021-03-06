@@ -1,3 +1,4 @@
+#include <Wire.h>;
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
@@ -11,8 +12,8 @@ const char *password = "";
 ESP8266WebServer server(80);
 RTC_DS1307 rtc;
 
-static const unsigned long SCHEDULE_INTERVAL = 1000;
-static unsigned long currentScheduleTime = 0;
+int SCHEDULE_INTERVAL = 10000;
+int currentScheduleTime;
 
 typedef struct
 {
@@ -20,7 +21,7 @@ typedef struct
   uint8_t pinId;
 } valve;
 
-const valve valves[4] {
+valve valves[4] {
   {1, D1},
   {2, D2},
   {3, D3},
@@ -60,14 +61,31 @@ valveTimer timers[4] {
 
 void setup()
 {
+  // Set up logging
   Serial.begin(9600);
+  Serial.println("Setting up");
 
+  // Set up RTC
+  Wire.begin(D2, D3); // set I2C pins [SDA = D7, SCL = D8], default clock is 100kHz
+  rtc.begin();
+
+if (! rtc.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    rtc.adjust(DateTime(2016, 11, 19, 19, 45, 0));   // <----------------------SET TIME AND DATE: YYYY,MM,DD,HH,MM,SS
+  }
+  
+  // Set up valve pins
   for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
   {
     pinMode(valves[i].pinId, OUTPUT);
-    digitalWrite(valves[i].pinId, LOW);
+    digitalWrite(valves[i].pinId, HIGH);
   }
 
+  // Set up WiFi
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED)
@@ -79,6 +97,7 @@ void setup()
   Serial.print("IP adress:\t");
   Serial.println(WiFi.localIP());
 
+  // Set up mDNS
   if (MDNS.begin("dripdrop"))
   {
     Serial.println("mDNS responder started");
@@ -88,21 +107,24 @@ void setup()
     Serial.println("Error setting up MDNS responder!");
   }
 
+  // Set up routes
   server.on("/", HTTP_GET, onRootRoute);
 
   server.on("/system/ip", HTTP_GET, onSystemIpRoute);
+
   server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
   server.on("/system/time", HTTP_POST, onSystemTimeSetRoute);
 
   server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
+  /*
+    server.on("/timer", HTTP_GET, onTimerGetRoute);
+    server.on("/timer", HTTP_POST, onTimerPostRoute);
 
-  server.on("/timer", HTTP_GET, onTimerGetRoute);
-  server.on("/timer", HTTP_POST, onTimerPostRoute);
-
-  server.on("/schedule", HTTP_GET, onScheduleGetRoute);
-  server.on("/schedule", HTTP_POST, onSchedulePostRoute);
+    server.on("/schedule", HTTP_GET, onScheduleGetRoute);
+    server.on("/schedule", HTTP_POST, onSchedulePostRoute);
+  */
 
   server.onNotFound(onRouteNotFound);
 
@@ -113,18 +135,10 @@ void loop()
 {
   server.handleClient();
 
+  currentScheduleTime = currentScheduleTime + 1;
+
   if (currentScheduleTime > SCHEDULE_INTERVAL) {
-    Serial.println("Check schedules and timers");
-
-    DateTime now = rtc.now();
-    uint8_t unixtime = now.unixtime();
-
-    checkValveSchedule(unixtime);
-    checkValveTimers(unixtime);
-
     currentScheduleTime = 0;
-  } else {
-    currentScheduleTime += 1;
   }
 }
 
@@ -134,7 +148,7 @@ void onRootRoute()
   server.send(200, "text/html", APP_HTML);
 }
 
-void checkValveSchedule(uint8_t unixtime) {
+/*void checkValveSchedule(uint8_t unixtime) {
   DateTime now = rtc.now();
 
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
@@ -151,9 +165,9 @@ void checkValveSchedule(uint8_t unixtime) {
       digitalWrite(timers[i].valveId, LOW);
     }
   }
-}
+  }
 
-void checkValveTimers(uint8_t unixtime) {
+  void checkValveTimers(uint8_t unixtime) {
   for (int i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
   {
     pinMode(timers[i].valveId, OUTPUT);
@@ -163,7 +177,7 @@ void checkValveTimers(uint8_t unixtime) {
       digitalWrite(timers[i].valveId, LOW);
     }
   }
-}
+  }*/
 
 /*
   Valve settings
@@ -171,8 +185,8 @@ void checkValveTimers(uint8_t unixtime) {
 void onValveStateRoute()
 {
   int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = valves[valveId].pinId;
-  pinMode(valvePin, INPUT);
+  uint8_t valvePin = valves[valveId - 1].pinId;
+  //pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
 
   server.send(200, "text/plain", String(val));
@@ -180,9 +194,10 @@ void onValveStateRoute()
 
 void onValveStateChangeOnRoute()
 {
+  Serial.print("Open valve");
+  Serial.println(server.arg("valveId"));
   int valveId = server.arg("valveId").toInt();
-  Serial.println(valveId);
-  uint8_t valvePin = valves[valveId].pinId;
+  uint8_t valvePin = valves[valveId - 1].pinId;
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
 
@@ -191,9 +206,10 @@ void onValveStateChangeOnRoute()
 
 void onValveStateChangeOffRoute()
 {
+  Serial.print("Close valve");
+  Serial.println(server.arg("valveId"));
   int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = valves[valveId].pinId;
-  Serial.println(valveId);
+  uint8_t valvePin = valves[valveId - 1].pinId;
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
 
@@ -211,18 +227,23 @@ void onSystemIpRoute()
 /*
   System - Time settings
 */
+
 void onSystemTimeSetRoute()
 {
-  uint8_t year = server.arg("year").toInt();
-  uint8_t month = server.arg("month").toInt();
-  uint8_t day = server.arg("day").toInt();
-  uint8_t hour = server.arg("hour").toInt();
-  uint8_t minute = server.arg("minute").toInt();
-  uint8_t second = server.arg("second").toInt();
+  byte year = server.arg("year").toInt();
+  byte month = server.arg("month").toInt();
+  byte day = server.arg("day").toInt();
+  byte hour = server.arg("hour").toInt();
+  byte minute = server.arg("minute").toInt();
+  byte second = server.arg("second").toInt();
 
-  rtc.adjust(DateTime(year, month, day, hour, minute, second));
+  rtc.adjust(DateTime(year, month, day, hour, minute, 0));
 
+  delay(100);
+  
   DateTime now = rtc.now();
+
+  Serial.println(String(now.unixtime()));
   server.send(200, "text/plain", String(now.unixtime()));
 }
 
@@ -234,14 +255,14 @@ void onSystemTimeGetRoute()
 
 /*
   Timers
-*/
-void onTimerGetRoute()
-{
-  server.send(501, "text/plain", "Not implemented :(");
-}
 
-void onTimerPostRoute()
-{
+  void onTimerGetRoute()
+  {
+  server.send(501, "text/plain", "Not implemented :(");
+  }
+
+  void onTimerPostRoute()
+  {
   uint8_t valveId = server.arg("valveId").toInt();
   uint8_t duration = server.arg("duration").toInt();
   DateTime now = rtc.now();
@@ -249,26 +270,26 @@ void onTimerPostRoute()
 
   timers[valveId].from = unixtime;
   timers[valveId].to = unixtime + (duration * 100);
-}
-
+  }
+*/
 /*
   Schedule
-*/
-void onScheduleGetRoute()
-{
-  server.send(501, "text/plain", "Not implemented :(");
-}
 
-void onSchedulePostRoute()
-{
+  void onScheduleGetRoute()
+  {
+  server.send(501, "text/plain", "Not implemented :(");
+  }
+
+  void onSchedulePostRoute()
+  {
   uint8_t valveId = server.arg("valveId").toInt();
 
   schedules[valveId].fromHour = server.arg("fromHour").toInt();
   schedules[valveId].fromMinute = server.arg("fromMinute").toInt();
   schedules[valveId].toHour = server.arg("toHour").toInt();
   schedules[valveId].toMinute = server.arg("toMinutemHour").toInt();
-}
-
+  }
+*/
 
 void onRouteNotFound()
 {
