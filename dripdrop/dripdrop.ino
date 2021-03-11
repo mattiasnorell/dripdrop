@@ -5,7 +5,6 @@
 #include <DS1307.h>
 #include "AppHtml.h";
 #include <string>;
-#include "RTClib.h"
 
 #define DS1307_ADDRESS 0x68
 
@@ -150,7 +149,7 @@ void checkValveSchedule() {
     uint8_t valvePin = valves[schedules[i].valveId].pinId;
     pinMode(valvePin, OUTPUT);
 
-    if (schedules[i].fromHour >= now.hour() && schedules[i].fromMinute >= now.minute() && schedules[i].toHour >= now.hour() && schedules[i].toMinute >= now.minute()) {
+    if (schedules[i].fromHour <= now.hour() && schedules[i].fromMinute <= now.minute() && schedules[i].toHour >= now.hour() && schedules[i].toMinute >= now.minute()) {
       digitalWrite(timers[i].valveId, HIGH);
     } else {
       digitalWrite(timers[i].valveId, LOW);
