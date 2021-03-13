@@ -110,6 +110,8 @@ void setup()
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
 
+  server.on("/valves/off", HTTP_POST, onValvesAllOffRoute);
+
   server.on("/timer", HTTP_POST, onTimerPostRoute);
   server.on("/timer", HTTP_GET, onTimerGetRoute);
 
@@ -124,7 +126,7 @@ void setup()
 void loop()
 {
   server.handleClient();
-  
+
   currentScheduleTime = currentScheduleTime + 1;
 
   if (currentScheduleTime >= SCHEDULE_INTERVAL) {
@@ -184,6 +186,17 @@ void onValveStateRoute()
   int val = digitalRead(valvePin);
 
   server.send(200, "text/plain", String(val));
+}
+
+void onValvesAllOffRoute()
+{
+  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
+  {
+    pinMode(valves[i].pinId, OUTPUT);
+    digitalWrite(valves[i].pinId, LOW);
+  }
+
+  server.send(200, "text/plain", "on");
 }
 
 void onValveStateChangeOnRoute()
@@ -253,7 +266,7 @@ void onTimerPostRoute()
   int duration = server.arg("duration").toInt();
   DateTime now = rtc.now();
   int unixtime = now.unixtime();
-  
+
   timers[valveId - 1].to = unixtime + duration;
 
   server.send(200, "text/plain", "ok");
@@ -265,7 +278,26 @@ void onTimerPostRoute()
 
 void onScheduleGetRoute()
 {
-  server.send(501, "text/plain", "Not implemented :(");
+  String output = "{[";
+  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
+  for (int i = 0; i < arrLen; ++i)
+  {
+    output = output + "{";
+    output = output + "\"valveId\":" + String(i + 1) + ",";
+    output = output + "\"fromHour\":" + String(schedules[i].fromHour) + ",";
+    output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
+    output = output + "\"toHour\":" + String(schedules[i].toHour) + ",";
+    output = output + "\"toMinute\":" + String(schedules[i].toMinute);
+    output = output + "}";
+
+    if (i < arrLen - 1) {
+      output = output + ",";
+    }
+  }
+
+  output = output + "]}";
+
+  server.send(200, "application/json", output);
 }
 
 void onSchedulePostRoute()
