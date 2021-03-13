@@ -2,9 +2,9 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-#include <DS1307.h>
 #include "AppHtml.h";
 #include <string>;
+#include "RTClib.h"
 
 #define DS1307_ADDRESS 0x68
 
@@ -14,8 +14,7 @@ const char *password = "";
 ESP8266WebServer server(80);
 RTC_Millis rtc;
 
-const static int SCHEDULE_INTERVAL = 5000;
-int currentScheduleTime;
+const int SCHEDULE_INTERVAL = 5000;
 
 typedef struct
 {
@@ -125,15 +124,14 @@ void setup()
 
 void loop()
 {
+  static unsigned long last_run = 0;
   server.handleClient();
 
-  currentScheduleTime = currentScheduleTime + 1;
-
-  if (currentScheduleTime >= SCHEDULE_INTERVAL) {
+  if (millis() - last_run > SCHEDULE_INTERVAL) {
     checkValveSchedule();
     checkValveTimers();
 
-    currentScheduleTime = 0;
+    last_run = millis();
   }
 }
 
