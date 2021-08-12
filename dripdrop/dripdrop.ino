@@ -38,12 +38,11 @@ typedef struct
   uint8_t toMinute;
 } valveSchedule;
 
-valveSchedule schedules[4] {
-  {1, 0, 0, 0, 0},
-  {2, 0, 0, 0, 0},
-  {3, 0, 0, 0, 0},
-  {4, 0, 0, 0, 0}
-};
+valveSchedule schedules[4]{
+    {1, 0, 0, 0, 0},
+    {2, 0, 0, 0, 0},
+    {3, 0, 0, 0, 0},
+    {4, 0, 0, 0, 0}};
 
 typedef struct
 {
@@ -128,7 +127,8 @@ void loop()
   static unsigned long last_run = 0;
   server.handleClient();
 
-  if (millis() - last_run > SCHEDULE_INTERVAL) {
+  if (millis() - last_run > SCHEDULE_INTERVAL)
+  {
     checkValveSchedule();
     checkValveTimers();
 
@@ -142,7 +142,8 @@ void onRootRoute()
   server.send(200, "text/html", APP_HTML);
 }
 
-void checkValveSchedule() {
+void checkValveSchedule()
+{
 
   DateTime now = rtc.now();
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
@@ -169,7 +170,8 @@ void checkValveSchedule() {
   }
 }
 
-void checkValveTimers() {
+void checkValveTimers()
+{
   DateTime now = rtc.now();
   int unixtime = now.unixtime();
   for (int i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
@@ -208,7 +210,7 @@ void onValveStateRoute()
   uint8_t valvePin = getValvePinId(valveId);
   //pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
-
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", String(val));
 }
 
@@ -219,7 +221,7 @@ void onValvesAllOffRoute()
     pinMode(valves[i].pinId, OUTPUT);
     digitalWrite(valves[i].pinId, LOW);
   }
-
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "on");
 }
 
@@ -229,7 +231,7 @@ void onValveStateChangeOnRoute()
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
-
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "on");
 }
 
@@ -239,7 +241,7 @@ void onValveStateChangeOffRoute()
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
-
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "off");
 }
 
@@ -248,6 +250,7 @@ void onValveStateChangeOffRoute()
 */
 void onSystemIpRoute()
 {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", WiFi.localIP().toString());
 }
 
@@ -267,12 +270,14 @@ void onSystemTimeSetRoute()
   rtc.adjust(DateTime(year, month, day, hour, minute, second));
 
   DateTime now = rtc.now();
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", String(now.unixtime()));
 }
 
 void onSystemTimeGetRoute()
 {
   DateTime now = rtc.now();
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", String(now.unixtime()));
 }
 
@@ -297,6 +302,7 @@ void onTimerGetRoute()
 
   output = output + "]";
 
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", output);
 }
 
@@ -320,6 +326,7 @@ void onTimerAbortPostRoute()
 
   timers[valveId - 1].to = -1;
 
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
 }
 
@@ -341,13 +348,15 @@ void onScheduleGetRoute()
     output = output + "\"toMinute\":" + String(schedules[i].toMinute);
     output = output + "}";
 
-    if (i < arrLen - 1) {
+    if (i < arrLen - 1)
+    {
       output = output + ",";
     }
   }
 
   output = output + "]";
 
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", output);
 }
 
@@ -364,10 +373,12 @@ void onSchedulePostRoute()
   schedules[valveId - 1].toHour = toHour;
   schedules[valveId - 1].toMinute = toMinute;
 
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
 }
 
 void onRouteNotFound()
 {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(404, "text/plain", "404 :(");
 }
