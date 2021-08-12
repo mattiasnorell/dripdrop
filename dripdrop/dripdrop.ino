@@ -4,7 +4,8 @@
 #include <ESP8266mDNS.h>
 #include "AppHtml.h";
 #include <string>;
-#include "RTClib.h"
+#include "RTClib.h";
+#include <EEPROM.h>
 
 #define DS1307_ADDRESS 0x68
 
@@ -14,7 +15,10 @@ const char *password = "";
 ESP8266WebServer server(80);
 RTC_Millis rtc;
 
-const int SCHEDULE_INTERVAL = 5000;
+const int VALVE_CHECK_INTERVAL = 5000;
+const int SENSOR_CHECK_INTERVAL = 60000;
+
+const int SCHEDULE_EEPROM_ADRESS = 100;
 
 typedef struct
 {
@@ -31,6 +35,7 @@ valve valves[4] {
 
 typedef struct
 {
+  int scheduleId;
   int valveId;
   uint8_t fromHour;
   uint8_t fromMinute;
@@ -38,11 +43,7 @@ typedef struct
   uint8_t toMinute;
 } valveSchedule;
 
-valveSchedule schedules[4]{
-    {1, 0, 0, 0, 0},
-    {2, 0, 0, 0, 0},
-    {3, 0, 0, 0, 0},
-    {4, 0, 0, 0, 0}};
+valveSchedule schedules[32];
 
 typedef struct
 {
@@ -96,6 +97,8 @@ void setup()
     Serial.println("Error setting up MDNS responder!");
   }
 
+  EEPROM.get(SCHEDULE_EEPROM_ADRESS, schedules);
+
   // Set up routes
   server.on("/", HTTP_GET, onRootRoute);
 
@@ -116,6 +119,7 @@ void setup()
 
   server.on("/schedule", HTTP_GET, onScheduleGetRoute);
   server.on("/schedule", HTTP_POST, onSchedulePostRoute);
+  server.on("/schedule/delete", HTTP_POST, onScheduleDeleteRoute);
 
   server.onNotFound(onRouteNotFound);
 
@@ -124,15 +128,22 @@ void setup()
 
 void loop()
 {
-  static unsigned long last_run = 0;
+  static unsigned long last_valve_run_check = 0;
+  static unsigned long last_sensor_run_check = 0;
   server.handleClient();
 
-  if (millis() - last_run > SCHEDULE_INTERVAL)
+  if (millis() - last_sensor_run_check > SENSOR_CHECK_INTERVAL)
+  {
+    // Not yet implemented
+    last_valve_run_check = millis();
+  }
+
+  if (millis() - last_valve_run_check > VALVE_CHECK_INTERVAL)
   {
     checkValveSchedule();
     checkValveTimers();
 
-    last_run = millis();
+    last_valve_run_check = millis();
   }
 }
 
@@ -158,12 +169,12 @@ void checkValveSchedule()
     int fromUnixtime = from.unixtime();
     DateTime to = DateTime(now.year(), now.month(), now.day(), schedules[i].toHour, schedules[i].toMinute, 0).unixtime();
     int toUnixtime = to.unixtime();
-    
+
     pinMode(valvePin, OUTPUT);
     if (fromUnixtime <= unixtime && toUnixtime >= unixtime) {
       Serial.println("on");
       digitalWrite(valvePin, LOW);
-    }else{
+    } else {
       Serial.println("off");
       digitalWrite(valvePin, HIGH);
     }
@@ -341,6 +352,7 @@ void onScheduleGetRoute()
   for (int i = 0; i < arrLen; ++i)
   {
     output = output + "{";
+    output = output + "\"scheduleId\":" + String(i) + ",";
     output = output + "\"valveId\":" + String(schedules[i].valveId) + ",";
     output = output + "\"fromHour\":" + String(schedules[i].fromHour) + ",";
     output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
@@ -362,16 +374,34 @@ void onScheduleGetRoute()
 
 void onSchedulePostRoute()
 {
+  uint8_t scheduleId = server.arg("scheduleId").toInt();
   uint8_t valveId = server.arg("valveId").toInt();
   uint8_t fromHour = server.arg("fromHour").toInt();
   uint8_t fromMinute = server.arg("fromMinute").toInt();
   uint8_t toHour = server.arg("toHour").toInt();
   uint8_t toMinute = server.arg("toMinute").toInt();
 
-  schedules[valveId - 1].fromHour = fromHour;
-  schedules[valveId - 1].fromMinute = fromMinute;
-  schedules[valveId - 1].toHour = toHour;
-  schedules[valveId - 1].toMinute = toMinute;
+  schedules[scheduleId].valveId = valveId;
+  schedules[scheduleId].fromHour = fromHour;
+  schedules[scheduleId].fromMinute = fromMinute;
+  schedules[scheduleId].toHour = toHour;
+  schedules[scheduleId].toMinute = toMinute;
+
+  EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", "ok");
+}
+
+void onScheduleDeleteRoute(){
+  uint8_t scheduleId = server.arg("scheduleId").toInt();
+  schedules[scheduleId].valveId = 0;
+  schedules[scheduleId].fromHour = 0;
+  schedules[scheduleId].fromMinute = 0;
+  schedules[scheduleId].toHour = 0;
+  schedules[scheduleId].toMinute = 0;
+
+  EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
 
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
