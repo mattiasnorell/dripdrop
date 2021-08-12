@@ -23,10 +23,10 @@ typedef struct
 } valve;
 
 valve valves[4] {
-  {1, D1},
-  {2, D2},
-  {3, D3},
-  {4, D4}
+  {1, D4},
+  {2, D5},
+  {3, D6},
+  {4, D7}
 };
 
 typedef struct
@@ -52,10 +52,10 @@ typedef struct
 } valveTimer;
 
 valveTimer timers[4] {
-  {1, 0},
-  {2, 0},
-  {3, 0},
-  {4, 0}
+  {1, -1},
+  {2, -1},
+  {3, -1},
+  {4, -1}
 };
 
 
@@ -113,6 +113,7 @@ void setup()
 
   server.on("/timer", HTTP_POST, onTimerPostRoute);
   server.on("/timer", HTTP_GET, onTimerGetRoute);
+  server.on("/timer/abort", HTTP_POST, onTimerAbortPostRoute);
 
   server.on("/schedule", HTTP_GET, onScheduleGetRoute);
   server.on("/schedule", HTTP_POST, onSchedulePostRoute);
@@ -146,13 +147,24 @@ void checkValveSchedule() {
   DateTime now = rtc.now();
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
   {
-    uint8_t valvePin = valves[schedules[i].valveId].pinId;
-    pinMode(valvePin, OUTPUT);
+    if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].toHour == 0 && schedules[i].toMinute == 0) {
+      continue;
+    }
 
-    if (schedules[i].fromHour <= now.hour() && schedules[i].fromMinute <= now.minute() && schedules[i].toHour >= now.hour() && schedules[i].toMinute >= now.minute()) {
-      digitalWrite(timers[i].valveId, HIGH);
-    } else {
-      digitalWrite(timers[i].valveId, LOW);
+    uint8_t valvePin = getValvePinId(schedules[i].valveId);
+    int unixtime = now.unixtime();
+    DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0).unixtime();
+    int fromUnixtime = from.unixtime();
+    DateTime to = DateTime(now.year(), now.month(), now.day(), schedules[i].toHour, schedules[i].toMinute, 0).unixtime();
+    int toUnixtime = to.unixtime();
+    
+    pinMode(valvePin, OUTPUT);
+    if (fromUnixtime <= unixtime && toUnixtime >= unixtime) {
+      Serial.println("on");
+      digitalWrite(valvePin, LOW);
+    }else{
+      Serial.println("off");
+      digitalWrite(valvePin, HIGH);
     }
   }
 }
@@ -162,13 +174,27 @@ void checkValveTimers() {
   int unixtime = now.unixtime();
   for (int i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
   {
-    uint8_t valvePin = valves[timers[i].valveId].pinId;
+    if (timers[i].to < 0) {
+      continue;
+    }
+
+    uint8_t valvePin = getValvePinId(timers[i].valveId);
     pinMode(valvePin, OUTPUT);
 
-    if (timers[i].to >= unixtime) {
-      digitalWrite(timers[i].valveId, HIGH);
+    if (timers[i].to > unixtime) {
+      digitalWrite(valvePin, LOW);
     } else {
-      digitalWrite(timers[i].valveId, LOW);
+      timers[i].to = -1;
+      digitalWrite(valvePin, HIGH);
+    }
+  }
+}
+
+uint8_t getValvePinId(int valveId) {
+  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
+  {
+    if (valves[i].id == valveId) {
+      return valves[i].pinId;
     }
   }
 }
@@ -179,7 +205,7 @@ void checkValveTimers() {
 void onValveStateRoute()
 {
   int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = valves[valveId - 1].pinId;
+  uint8_t valvePin = getValvePinId(valveId);
   //pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
 
@@ -200,7 +226,7 @@ void onValvesAllOffRoute()
 void onValveStateChangeOnRoute()
 {
   int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = valves[valveId - 1].pinId;
+  uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
 
@@ -210,7 +236,7 @@ void onValveStateChangeOnRoute()
 void onValveStateChangeOffRoute()
 {
   int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = valves[valveId - 1].pinId;
+  uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
 
@@ -255,17 +281,44 @@ void onSystemTimeGetRoute()
 */
 void onTimerGetRoute()
 {
-  server.send(501, "text/plain", "Not implemented :(");
+  String output = "[";
+  int arrLen = sizeof(timers) / sizeof(valveTimer);
+  for (int i = 0; i < arrLen; ++i)
+  {
+    output = output + "{";
+    output = output + "\"valveId\":" + String(timers[i].valveId) + ",";
+    output = output + "\"to\":" + String(timers[i].to);
+    output = output + "}";
+
+    if (i < arrLen - 1) {
+      output = output + ",";
+    }
+  }
+
+  output = output + "]";
+
+  server.send(200, "application/json", output);
 }
 
 void onTimerPostRoute()
 {
   uint8_t valveId = server.arg("valveId").toInt();
   int duration = server.arg("duration").toInt();
+
   DateTime now = rtc.now();
   int unixtime = now.unixtime();
+  int to = unixtime + duration;
 
-  timers[valveId - 1].to = unixtime + duration;
+  timers[valveId - 1].to = to;
+
+  server.send(200, "text/plain", "ok");
+}
+
+void onTimerAbortPostRoute()
+{
+  uint8_t valveId = server.arg("valveId").toInt();
+
+  timers[valveId - 1].to = -1;
 
   server.send(200, "text/plain", "ok");
 }
@@ -276,12 +329,12 @@ void onTimerPostRoute()
 
 void onScheduleGetRoute()
 {
-  String output = "{[";
+  String output = "[";
   int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
   {
     output = output + "{";
-    output = output + "\"valveId\":" + String(i + 1) + ",";
+    output = output + "\"valveId\":" + String(schedules[i].valveId) + ",";
     output = output + "\"fromHour\":" + String(schedules[i].fromHour) + ",";
     output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
     output = output + "\"toHour\":" + String(schedules[i].toHour) + ",";
@@ -293,7 +346,7 @@ void onScheduleGetRoute()
     }
   }
 
-  output = output + "]}";
+  output = output + "]";
 
   server.send(200, "application/json", output);
 }
@@ -313,7 +366,6 @@ void onSchedulePostRoute()
 
   server.send(200, "text/plain", "ok");
 }
-
 
 void onRouteNotFound()
 {
