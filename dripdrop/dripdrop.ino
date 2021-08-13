@@ -8,6 +8,7 @@
 #include <EEPROM.h>
 
 #define DS1307_ADDRESS 0x68
+#define EEPROM_SIZE 4096
 
 const char *ssid = "";
 const char *password = "";
@@ -97,8 +98,10 @@ void setup()
     Serial.println("Error setting up MDNS responder!");
   }
 
-  EEPROM.get(SCHEDULE_EEPROM_ADRESS, schedules);
-
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.get(SCHEDULE_EEPROM_ADRESS,schedules);
+  delay(1000);
+  
   // Set up routes
   server.on("/", HTTP_GET, onRootRoute);
 
@@ -117,8 +120,8 @@ void setup()
   server.on("/timer", HTTP_GET, onTimerGetRoute);
   server.on("/timer/abort", HTTP_POST, onTimerAbortPostRoute);
 
-  server.on("/schedule", HTTP_GET, onScheduleGetRoute);
-  server.on("/schedule", HTTP_POST, onSchedulePostRoute);
+  server.on("/schedule/list", HTTP_GET, onScheduleGetRoute);
+  server.on("/schedule/add", HTTP_POST, onSchedulePostRoute);
   server.on("/schedule/delete", HTTP_POST, onScheduleDeleteRoute);
 
   server.onNotFound(onRouteNotFound);
@@ -159,6 +162,11 @@ void checkValveSchedule()
   DateTime now = rtc.now();
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
   {
+
+    if (schedules[i].valveId < 0) {
+      continue;
+    }
+
     if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].toHour == 0 && schedules[i].toMinute == 0) {
       continue;
     }
@@ -279,6 +287,7 @@ void onSystemTimeSetRoute()
   uint8_t second = server.arg("second").toInt();
 
   rtc.adjust(DateTime(year, month, day, hour, minute, second));
+  delay(100);
 
   DateTime now = rtc.now();
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -374,12 +383,21 @@ void onScheduleGetRoute()
 
 void onSchedulePostRoute()
 {
-  uint8_t scheduleId = server.arg("scheduleId").toInt();
+  uint8_t scheduleId = 0; //server.arg("scheduleId").toInt();
   uint8_t valveId = server.arg("valveId").toInt();
   uint8_t fromHour = server.arg("fromHour").toInt();
   uint8_t fromMinute = server.arg("fromMinute").toInt();
   uint8_t toHour = server.arg("toHour").toInt();
   uint8_t toMinute = server.arg("toMinute").toInt();
+
+  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
+  for (int i = 0; i < arrLen; ++i)
+  {
+    if (schedules[i].valveId == 0) {
+      scheduleId = i;
+      break;
+    }
+  }
 
   schedules[scheduleId].valveId = valveId;
   schedules[scheduleId].fromHour = fromHour;
@@ -388,21 +406,25 @@ void onSchedulePostRoute()
   schedules[scheduleId].toMinute = toMinute;
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
-
+  delay(200);
+  EEPROM.commit();
+  
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
 }
 
-void onScheduleDeleteRoute(){
+void onScheduleDeleteRoute() {
   uint8_t scheduleId = server.arg("scheduleId").toInt();
-  schedules[scheduleId].valveId = 0;
+  schedules[scheduleId].valveId = -1;
   schedules[scheduleId].fromHour = 0;
   schedules[scheduleId].fromMinute = 0;
   schedules[scheduleId].toHour = 0;
   schedules[scheduleId].toMinute = 0;
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
-
+  delay(200);
+  EEPROM.commit();
+  
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
 }
