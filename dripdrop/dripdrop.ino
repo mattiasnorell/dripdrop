@@ -99,27 +99,32 @@ void setup()
   }
 
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(SCHEDULE_EEPROM_ADRESS,schedules);
+  EEPROM.get(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(1000);
-  
+
   // Set up routes
   server.on("/", HTTP_GET, onRootRoute);
 
+  server.on("/system/ip", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/ip", HTTP_GET, onSystemIpRoute);
 
+  server.on("/system/time", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
   server.on("/system/time", HTTP_POST, onSystemTimeSetRoute);
 
   server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
+  server.on("/valve/state", HTTP_OPTIONS, onOptionRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
 
   server.on("/valves/off", HTTP_POST, onValvesAllOffRoute);
 
   server.on("/timer", HTTP_POST, onTimerPostRoute);
+  server.on("/timer", HTTP_OPTIONS, onOptionRoute);
   server.on("/timer", HTTP_GET, onTimerGetRoute);
   server.on("/timer/abort", HTTP_POST, onTimerAbortPostRoute);
 
+  server.on("/settings/list", HTTP_OPTIONS, onOptionRoute);
   server.on("/schedule/list", HTTP_GET, onScheduleGetRoute);
   server.on("/schedule/add", HTTP_POST, onSchedulePostRoute);
   server.on("/schedule/delete", HTTP_POST, onScheduleDeleteRoute);
@@ -133,6 +138,7 @@ void loop()
 {
   static unsigned long last_valve_run_check = 0;
   static unsigned long last_sensor_run_check = 0;
+  setCors();
   server.handleClient();
 
   if (millis() - last_sensor_run_check > SENSOR_CHECK_INTERVAL)
@@ -150,10 +156,23 @@ void loop()
   }
 }
 
+void setCors() {
+  server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
+  server.sendHeader(F("Access-Control-Max-Age"), F("600"));
+  server.sendHeader(F("Access-Control-Allow-Methods"), F("PUT,POST,GET,OPTIONS"));
+  server.sendHeader(F("Access-Control-Allow-Headers"), F("*"));
+};
+
 // Routing handlers
 void onRootRoute()
 {
   server.send(200, "text/html", APP_HTML);
+}
+
+void onOptionRoute() {
+  server.sendHeader(F("access-control-allow-credentials"), F("false"));
+  setCors();
+  server.send(204);
 }
 
 void checkValveSchedule()
@@ -246,6 +265,7 @@ void onValvesAllOffRoute()
 
 void onValveStateChangeOnRoute()
 {
+  setCors();
   int valveId = server.arg("valveId").toInt();
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
@@ -256,6 +276,7 @@ void onValveStateChangeOnRoute()
 
 void onValveStateChangeOffRoute()
 {
+  setCors();
   int valveId = server.arg("valveId").toInt();
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
@@ -269,7 +290,6 @@ void onValveStateChangeOffRoute()
 */
 void onSystemIpRoute()
 {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", WiFi.localIP().toString());
 }
 
@@ -279,6 +299,7 @@ void onSystemIpRoute()
 
 void onSystemTimeSetRoute()
 {
+  setCors();
   uint16_t year = server.arg("year").toInt();
   uint8_t month = server.arg("month").toInt();
   uint8_t day = server.arg("day").toInt();
@@ -297,7 +318,6 @@ void onSystemTimeSetRoute()
 void onSystemTimeGetRoute()
 {
   DateTime now = rtc.now();
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", String(now.unixtime()));
 }
 
@@ -322,12 +342,12 @@ void onTimerGetRoute()
 
   output = output + "]";
 
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", output);
 }
 
 void onTimerPostRoute()
 {
+  setCors();
   uint8_t valveId = server.arg("valveId").toInt();
   int duration = server.arg("duration").toInt();
 
@@ -342,11 +362,11 @@ void onTimerPostRoute()
 
 void onTimerAbortPostRoute()
 {
+  setCors();
   uint8_t valveId = server.arg("valveId").toInt();
 
   timers[valveId - 1].to = -1;
 
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", "ok");
 }
 
@@ -377,12 +397,12 @@ void onScheduleGetRoute()
 
   output = output + "]";
 
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", output);
 }
 
 void onSchedulePostRoute()
 {
+  setCors();
   uint8_t scheduleId = 0; //server.arg("scheduleId").toInt();
   uint8_t valveId = server.arg("valveId").toInt();
   uint8_t fromHour = server.arg("fromHour").toInt();
@@ -408,12 +428,12 @@ void onSchedulePostRoute()
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
   EEPROM.commit();
-  
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+
   server.send(200, "text/plain", "ok");
 }
 
 void onScheduleDeleteRoute() {
+  setCors();
   uint8_t scheduleId = server.arg("scheduleId").toInt();
   schedules[scheduleId].valveId = -1;
   schedules[scheduleId].fromHour = 0;
@@ -424,8 +444,7 @@ void onScheduleDeleteRoute() {
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
   EEPROM.commit();
-  
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+
   server.send(200, "text/plain", "ok");
 }
 
