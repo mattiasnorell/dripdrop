@@ -2,10 +2,11 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-#include "AppHtml.h";
+//#include "AppHtml.h";
 #include <string>;
 #include "RTClib.h";
 #include <EEPROM.h>
+#include <ArduinoJson.h>
 
 #define DS1307_ADDRESS 0x68
 #define EEPROM_SIZE 4096
@@ -25,13 +26,14 @@ typedef struct
 {
   int id;
   uint8_t pinId;
+  bool isManuallyStarted;
 } valve;
 
 valve valves[4] {
-  {1, D4},
-  {2, D5},
-  {3, D6},
-  {4, D7}
+  {1, D4, false},
+  {2, D5, false},
+  {3, D6, false},
+  {4, D7, false}
 };
 
 typedef struct
@@ -112,33 +114,40 @@ void setup()
   server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
   server.on("/system/time", HTTP_POST, onSystemTimeSetRoute);
 
+  server.on("/valve/state/on", HTTP_OPTIONS, onOptionRoute);
   server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
+  server.on("/valve/state/off", HTTP_OPTIONS, onOptionRoute);
   server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
   server.on("/valve/state", HTTP_OPTIONS, onOptionRoute);
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
-
+  server.on("/valves/off", HTTP_OPTIONS, onOptionRoute);
   server.on("/valves/off", HTTP_POST, onValvesAllOffRoute);
+  server.on("/valves", HTTP_GET, onValveListRoute);
 
-  server.on("/timer", HTTP_POST, onTimerPostRoute);
   server.on("/timer", HTTP_OPTIONS, onOptionRoute);
+  server.on("/timer", HTTP_POST, onTimerPostRoute);
   server.on("/timer", HTTP_GET, onTimerGetRoute);
+  server.on("/timer/abort", HTTP_OPTIONS, onOptionRoute);
   server.on("/timer/abort", HTTP_POST, onTimerAbortPostRoute);
 
-  server.on("/settings/list", HTTP_OPTIONS, onOptionRoute);
+  server.on("/schedule/list", HTTP_OPTIONS, onOptionRoute);
   server.on("/schedule/list", HTTP_GET, onScheduleGetRoute);
+  server.on("/schedule/add", HTTP_OPTIONS, onOptionRoute);
   server.on("/schedule/add", HTTP_POST, onSchedulePostRoute);
+  server.on("/schedule/delete", HTTP_OPTIONS, onOptionRoute);
   server.on("/schedule/delete", HTTP_POST, onScheduleDeleteRoute);
 
   server.onNotFound(onRouteNotFound);
 
   server.begin();
+
 }
 
 void loop()
 {
   static unsigned long last_valve_run_check = 0;
   static unsigned long last_sensor_run_check = 0;
-  setCors();
+
   server.handleClient();
 
   if (millis() - last_sensor_run_check > SENSOR_CHECK_INTERVAL)
@@ -157,22 +166,41 @@ void loop()
 }
 
 void setCors() {
-  server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
-  server.sendHeader(F("Access-Control-Max-Age"), F("600"));
-  server.sendHeader(F("Access-Control-Allow-Methods"), F("PUT,POST,GET,OPTIONS"));
-  server.sendHeader(F("Access-Control-Allow-Headers"), F("*"));
+  if (server.hasHeader("Access-Control-Allow-Headers") == false) {
+    Serial.println("Dont have Access-Control-Allow-Headers");
+    server.sendHeader("Access-Control-Allow-Headers", "*");
+  } else {
+    Serial.println("Has Access-Control-Allow-Headers");
+  }
+
+  if (server.hasHeader("Access-Control-Allow-Methods") == false) {
+
+    Serial.println("Dont have Access-Control-Allow-Methods");
+    server.sendHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
+  } else {
+    Serial.println("Has Access-Control-Allow-Methods");
+  }
+
+  if (server.hasHeader("Access-Control-Allow-Max-Age") == false) {
+
+    Serial.println("Dont have Access-Control-Allow-Max-Age");
+    server.sendHeader("Access-Control-Allow-Max-Age", "600");
+  } else {
+    Serial.println("Has Access-Control-Allow-Max-Age");
+  }
 };
 
 // Routing handlers
 void onRootRoute()
 {
-  server.send(200, "text/html", APP_HTML);
+
+  server.send(200, "text/html", "");
 }
 
 void onOptionRoute() {
-  server.sendHeader(F("access-control-allow-credentials"), F("false"));
+  server.sendHeader("access-control-allow-credentials", "false");
   setCors();
-  server.send(204);
+  server.send(200);
 }
 
 void checkValveSchedule()
@@ -182,6 +210,10 @@ void checkValveSchedule()
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
   {
 
+    if (valves[schedules[i].valveId].isManuallyStarted) {
+      continue;
+    }
+    
     if (schedules[i].valveId < 0) {
       continue;
     }
@@ -242,13 +274,33 @@ uint8_t getValvePinId(int valveId) {
 /*
   Valve settings
 */
+void onValveListRoute() {
+  String output = "[";
+
+  int arrLen = sizeof(valves) / sizeof(valve);
+  for (int i = 0; i < arrLen; ++i)
+  {
+    output = output + "{";
+    output = output + "\"id\":" + String(valves[i].id) + ",";
+    output = output + "}";
+
+    if (i < arrLen - 1) {
+      output = output + ",";
+    }
+  }
+
+  output = output + "]";
+
+  server.send(200, "text/plain", output);
+}
+
 void onValveStateRoute()
 {
   int valveId = server.arg("valveId").toInt();
   uint8_t valvePin = getValvePinId(valveId);
   //pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+
   server.send(200, "text/plain", String(val));
 }
 
@@ -259,29 +311,35 @@ void onValvesAllOffRoute()
     pinMode(valves[i].pinId, OUTPUT);
     digitalWrite(valves[i].pinId, LOW);
   }
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+
   server.send(200, "text/plain", "on");
 }
 
 void onValveStateChangeOnRoute()
 {
   setCors();
-  int valveId = server.arg("valveId").toInt();
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+  int valveId = doc["valveId"];
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+  valves[valveId].isManuallyStarted = true;
+  
   server.send(200, "text/plain", "on");
 }
 
 void onValveStateChangeOffRoute()
 {
   setCors();
-  int valveId = server.arg("valveId").toInt();
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+  int valveId = doc["valveId"];
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+  valves[valveId].isManuallyStarted = false;  
+
   server.send(200, "text/plain", "off");
 }
 
@@ -300,18 +358,29 @@ void onSystemIpRoute()
 void onSystemTimeSetRoute()
 {
   setCors();
-  uint16_t year = server.arg("year").toInt();
-  uint8_t month = server.arg("month").toInt();
-  uint8_t day = server.arg("day").toInt();
-  uint8_t hour = server.arg("hour").toInt();
-  uint8_t minute = server.arg("minute").toInt();
-  uint8_t second = server.arg("second").toInt();
+
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+  uint16_t year = doc["year"];
+  uint8_t month = doc["month"];
+  uint8_t day = doc["day"];
+  uint8_t hour = doc["hour"];
+  uint8_t minute = doc["minute"];
+  uint8_t second = doc["second"];
 
   rtc.adjust(DateTime(year, month, day, hour, minute, second));
+  
+  Serial.println(year);
+  Serial.println( month);
+  Serial.println(day);
+  Serial.println( hour);
+  Serial.println(minute);
+  Serial.println(second);
+  
   delay(100);
 
   DateTime now = rtc.now();
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+
   server.send(200, "text/plain", String(now.unixtime()));
 }
 
@@ -347,9 +416,11 @@ void onTimerGetRoute()
 
 void onTimerPostRoute()
 {
-  setCors();
-  uint8_t valveId = server.arg("valveId").toInt();
-  int duration = server.arg("duration").toInt();
+
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+  uint8_t valveId = doc["valveId"];
+  int duration = doc["duration"];
 
   DateTime now = rtc.now();
   int unixtime = now.unixtime();
@@ -357,13 +428,16 @@ void onTimerPostRoute()
 
   timers[valveId - 1].to = to;
 
+  setCors();
   server.send(200, "text/plain", "ok");
 }
 
 void onTimerAbortPostRoute()
 {
   setCors();
-  uint8_t valveId = server.arg("valveId").toInt();
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+  uint8_t valveId = doc["valveId"];
 
   timers[valveId - 1].to = -1;
 
@@ -403,17 +477,21 @@ void onScheduleGetRoute()
 void onSchedulePostRoute()
 {
   setCors();
+
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+
   uint8_t scheduleId = 0; //server.arg("scheduleId").toInt();
-  uint8_t valveId = server.arg("valveId").toInt();
-  uint8_t fromHour = server.arg("fromHour").toInt();
-  uint8_t fromMinute = server.arg("fromMinute").toInt();
-  uint8_t toHour = server.arg("toHour").toInt();
-  uint8_t toMinute = server.arg("toMinute").toInt();
+  uint8_t valveId = doc["valveId"];
+  uint8_t fromHour = doc["fromHour"];
+  uint8_t fromMinute = doc["fromMinute"];
+  uint8_t toHour = doc["toHour"];
+  uint8_t toMinute = doc["toMinute"];
 
   int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
   {
-    if (schedules[i].valveId == 0) {
+    if (schedules[i].valveId == -1) {
       scheduleId = i;
       break;
     }
@@ -425,6 +503,12 @@ void onSchedulePostRoute()
   schedules[scheduleId].toHour = toHour;
   schedules[scheduleId].toMinute = toMinute;
 
+  Serial.println(valveId);
+  Serial.println(fromHour);
+  Serial.println(fromMinute);
+  Serial.println(toHour);
+  Serial.println(toMinute);
+
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
   EEPROM.commit();
@@ -433,8 +517,11 @@ void onSchedulePostRoute()
 }
 
 void onScheduleDeleteRoute() {
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, server.arg("plain"));
+
   setCors();
-  uint8_t scheduleId = server.arg("scheduleId").toInt();
+  uint8_t scheduleId = doc["scheduleId"];
   schedules[scheduleId].valveId = -1;
   schedules[scheduleId].fromHour = 0;
   schedules[scheduleId].fromMinute = 0;
@@ -450,6 +537,5 @@ void onScheduleDeleteRoute() {
 
 void onRouteNotFound()
 {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(404, "text/plain", "404 :(");
 }
