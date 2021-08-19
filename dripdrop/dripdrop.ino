@@ -281,7 +281,7 @@ void onValveListRoute() {
   for (int i = 0; i < arrLen; ++i)
   {
     output = output + "{";
-    output = output + "\"id\":" + String(valves[i].id) + ",";
+    output = output + "\"id\":" + String(valves[i].id);
     output = output + "}";
 
     if (i < arrLen - 1) {
@@ -298,7 +298,7 @@ void onValveStateRoute()
 {
   int valveId = server.arg("valveId").toInt();
   uint8_t valvePin = getValvePinId(valveId);
-  //pinMode(valvePin, INPUT);
+  pinMode(valvePin, INPUT);
   int val = digitalRead(valvePin);
 
   server.send(200, "text/plain", String(val));
