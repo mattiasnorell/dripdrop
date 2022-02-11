@@ -26,7 +26,9 @@ typedef struct
 {
   int id;
   uint8_t pinId;
+  int lastRun;
   bool isManuallyStarted;
+  
 } valve;
 
 valve valves[4] {
@@ -109,6 +111,7 @@ void setup()
 
   server.on("/system/ip", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/ip", HTTP_GET, onSystemIpRoute);
+  server.on("/system/ping", HTTP_GET, onSystemPingRoute);
 
   server.on("/system/time", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
@@ -122,6 +125,7 @@ void setup()
   server.on("/valve/state", HTTP_GET, onValveStateRoute);
   server.on("/valves/off", HTTP_OPTIONS, onOptionRoute);
   server.on("/valves/off", HTTP_POST, onValvesAllOffRoute);
+  server.on("/valves", HTTP_OPTIONS, onOptionRoute);
   server.on("/valves", HTTP_GET, onValveListRoute);
 
   server.on("/timer", HTTP_OPTIONS, onOptionRoute);
@@ -232,6 +236,7 @@ void checkValveSchedule()
     pinMode(valvePin, OUTPUT);
     if (fromUnixtime <= unixtime && toUnixtime >= unixtime) {
       Serial.println("on");
+      valves[schedules[i].valveId - 1].lastRun = unixtime;
       digitalWrite(valvePin, LOW);
     } else {
       Serial.println("off");
@@ -254,6 +259,7 @@ void checkValveTimers()
     pinMode(valvePin, OUTPUT);
 
     if (timers[i].to > unixtime) {
+      valves[timers[i].valveId - 1].lastRun = unixtime;
       digitalWrite(valvePin, LOW);
     } else {
       timers[i].to = -1;
@@ -281,7 +287,8 @@ void onValveListRoute() {
   for (int i = 0; i < arrLen; ++i)
   {
     output = output + "{";
-    output = output + "\"id\":" + String(valves[i].id);
+    output = output + "\"id\":" + String(valves[i].id) + ",";
+    output = output + "\"lastRun\":" + String(valves[i].lastRun);
     output = output + "}";
 
     if (i < arrLen - 1) {
@@ -298,8 +305,8 @@ void onValveStateRoute()
 {
   int valveId = server.arg("valveId").toInt();
   uint8_t valvePin = getValvePinId(valveId);
-  pinMode(valvePin, INPUT);
-  int val = digitalRead(valvePin);
+  pinMode(valvePin, OUTPUT);
+  bool val = digitalRead(valvePin) == LOW;
 
   server.send(200, "text/plain", String(val));
 }
@@ -318,6 +325,7 @@ void onValvesAllOffRoute()
 void onValveStateChangeOnRoute()
 {
   setCors();
+  DateTime now = rtc.now();
   DynamicJsonDocument doc(1024);
   deserializeJson(doc, server.arg("plain"));
   int valveId = doc["valveId"];
@@ -325,6 +333,7 @@ void onValveStateChangeOnRoute()
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, LOW);
   valves[valveId].isManuallyStarted = true;
+  valves[valveId - 1].lastRun = now.unixtime();
   
   server.send(200, "text/plain", "on");
 }
@@ -532,6 +541,11 @@ void onScheduleDeleteRoute() {
   delay(200);
   EEPROM.commit();
 
+  server.send(200, "text/plain", "ok");
+}
+
+void onSystemPingRoute()
+{
   server.send(200, "text/plain", "ok");
 }
 
