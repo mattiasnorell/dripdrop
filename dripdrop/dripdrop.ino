@@ -12,6 +12,9 @@
 #define DS1307_ADDRESS 0x68
 #define EEPROM_SIZE 4096
 
+const char *hotspotSsid = "DripDrop";
+const char *hotspotPassword = "dripdrop";
+
 const char *ssid = "";
 const char *password = "";
 
@@ -76,7 +79,7 @@ void setup()
   Serial.println("Setting up");
 
   // Set up RTC
-  //rtc.begin();
+//  rtc.begin();
 
   // Set up valve pins
   for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
@@ -86,15 +89,19 @@ void setup()
   }
 
   // Set up WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
 
-  while (WiFi.waitForConnectResult() != WL_CONNECTED)
-  {
-    Serial.println("Checking WiFi");
-    delay(10000);
-    ESP.restart();
-  }
+  if(ssid){
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    while (WiFi.waitForConnectResult() != WL_CONNECTED)
+    {
+      Serial.println("Couldn't connect to WiFi, restarting in 10 seconds");
+      delay(10000);
+      ESP.restart();
+    }
+  }else{
+     WiFi.softAP(hotspotSsid, hotspotPassword);
+  }  
 
   Serial.print("IP adress:\t");
   Serial.println(WiFi.localIP());
@@ -156,6 +163,7 @@ void setup()
   server.onNotFound(onRouteNotFound);
 
   httpUpdater.setup(&server);
+  server.enableCORS(true);
   server.begin();  
   
 }
@@ -183,23 +191,19 @@ void loop()
 }
 
 void setCors() {
-  if (server.hasHeader("Access-Control-Allow-Headers") == false) {
+    if (server.hasHeader("Access-Control-Allow-Headers") == false) {
     Serial.println("Dont have Access-Control-Allow-Headers");
     server.sendHeader("Access-Control-Allow-Headers", "*");
   } else {
     Serial.println("Has Access-Control-Allow-Headers");
   }
-
   if (server.hasHeader("Access-Control-Allow-Methods") == false) {
-
     Serial.println("Dont have Access-Control-Allow-Methods");
     server.sendHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
   } else {
     Serial.println("Has Access-Control-Allow-Methods");
   }
-
   if (server.hasHeader("Access-Control-Allow-Max-Age") == false) {
-
     Serial.println("Dont have Access-Control-Allow-Max-Age");
     server.sendHeader("Access-Control-Allow-Max-Age", "600");
   } else {
@@ -216,7 +220,7 @@ void onRootRoute()
 void onOptionRoute() {
   server.sendHeader("access-control-allow-credentials", "false");
   setCors();
-  server.send(200);
+  server.send(204);
 }
 
 void checkValveSchedule()
@@ -237,8 +241,8 @@ void checkValveSchedule()
       Serial.println("Schedule empty");
       continue;
     }
-
-    if(bitRead(schedules[i].days, 7 - now.day())){
+    
+    if(bitRead(schedules[i].days, 7 - now.dayOfTheWeek())){
       Serial.println("Schedule not active today");
       continue;
     }
@@ -412,6 +416,7 @@ void onSystemTimeSetRoute()
 
 void onSystemTimeGetRoute()
 {
+  setCors();
   DateTime now = rtc.now();
   server.send(200, "text/plain", String(now.unixtime()));
 }
@@ -476,6 +481,7 @@ void onTimerAbortPostRoute()
 
 void onScheduleGetRoute()
 {
+  setCors();
   String output = "[";
   int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
@@ -512,7 +518,7 @@ void onSchedulePostRoute()
 {
   setCors();
 
-  DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(512);
   DeserializationError error = deserializeJson(doc, server.arg("plain"));
 
   
@@ -541,7 +547,7 @@ void onSchedulePostRoute()
 void onScheduleUpdateRoute(){
   setCors();
 
-  DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(512);
   Serial.println(server.arg("plain"));
   deserializeJson(doc, server.arg("plain"));
 
@@ -571,13 +577,19 @@ void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinut
   bitWrite(schedules[scheduleId].days, 3, days[4]);
   bitWrite(schedules[scheduleId].days, 2, days[5]);
   bitWrite(schedules[scheduleId].days, 1, days[6]);
-
+            
   Serial.println("Saving new schedule item");
   Serial.println(valveId);
   Serial.println(fromHour);
   Serial.println(fromMinute);
   Serial.println(toHour);
   Serial.println(toMinute);
+
+  Serial.println("Days");
+  for(int i = 0; i < 7; i++){
+    Serial.println(String(i) + "  " + String(days[i]));
+  }
+Serial.println("/ Days");
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
