@@ -15,8 +15,6 @@
 const char *hotspotSsid = "DripDrop";
 const char *hotspotPassword = "dripdrop";
 
-const char *ssid = "";
-const char *password = "";
 
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
@@ -126,6 +124,7 @@ void setup()
 
   server.on("/system/ip", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/ip", HTTP_GET, onSystemIpRoute);
+  server.on("/system/ping", HTTP_OPTIONS, onOptionRoute);
   server.on("/system/ping", HTTP_GET, onSystemPingRoute);
 
   server.on("/system/time", HTTP_OPTIONS, onOptionRoute);
@@ -636,7 +635,7 @@ void onScheduleDeleteAllRoute(){
 
 void onSystemPingRoute()
 {
-  server.send(200, "text/plain", "ok");
+  server.send(200, "text/plain", "{\"message\": \"ok\"}");
 }
 
 void onRouteNotFound()
