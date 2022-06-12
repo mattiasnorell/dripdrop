@@ -48,8 +48,7 @@ typedef struct
   int valveId;
   uint8_t fromHour;
   uint8_t fromMinute;
-  uint8_t toHour;
-  uint8_t toMinute;
+  uint8_t duration;
   byte days;
   
 } valveSchedule;
@@ -236,7 +235,7 @@ void checkValveSchedule()
       continue;
     }
    
-    if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].toHour == 0 && schedules[i].toMinute == 0) {
+    if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].duration == 0) {
       Serial.println("Schedule empty");
       continue;
     }
@@ -249,8 +248,7 @@ void checkValveSchedule()
     uint8_t valvePin = getValvePinId(schedules[i].valveId);    
     DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0).unixtime();
     int fromUnixtime = from.unixtime();
-    DateTime to = DateTime(now.year(), now.month(), now.day(), schedules[i].toHour, schedules[i].toMinute, 0).unixtime();
-    int toUnixtime = to.unixtime();
+    int toUnixtime = fromUnixtime + (schedules[i].duration * 1000);
     int unixtime = now.unixtime();
     
     pinMode(valvePin, OUTPUT);
@@ -490,8 +488,7 @@ void onScheduleGetRoute()
     output = output + "\"valveId\":" + String(schedules[i].valveId) + ",";
     output = output + "\"fromHour\":" + String(schedules[i].fromHour) + ",";
     output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
-    output = output + "\"toHour\":" + String(schedules[i].toHour) + ",";
-    output = output + "\"toMinute\":" + String(schedules[i].toMinute) + ",";
+    output = output + "\"duration\":" + String(schedules[i].duration) + ",";
     output = output + "\"days\":[";
     output = output + String(bitRead(schedules[i].days,7) == 1 ? "true" : "false") + ",";
     output = output + String(bitRead(schedules[i].days,6) == 1 ? "true" : "false") + ",";
@@ -526,8 +523,7 @@ void onSchedulePostRoute()
   uint8_t valveId = doc["valveId"];
   uint8_t fromHour = doc["fromHour"];
   uint8_t fromMinute = doc["fromMinute"];
-  uint8_t toHour = doc["toHour"];
-  uint8_t toMinute = doc["toMinute"];
+  uint8_t duration = doc["duration"];
   
   int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
@@ -538,7 +534,7 @@ void onSchedulePostRoute()
     }
   }
 
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,toHour,toMinute, doc["days"]);
+  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,duration, doc["days"]);
    
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
@@ -554,20 +550,18 @@ void onScheduleUpdateRoute(){
   uint8_t valveId = doc["valveId"];
   uint8_t fromHour = doc["fromHour"];
   uint8_t fromMinute = doc["fromMinute"];
-  uint8_t toHour = doc["toHour"];
-  uint8_t toMinute = doc["toMinute"];
+  uint8_t duration = doc["duration"];
 
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,toHour,toMinute, doc["days"]);
+  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,duration, doc["days"]);
   
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
-void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinute, int toHour, int toMinute, JsonArray days){
+void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinute, int duration, JsonArray days){
   schedules[scheduleId].valveId = valveId;
   schedules[scheduleId].fromHour = fromHour;
   schedules[scheduleId].fromMinute = fromMinute;
-  schedules[scheduleId].toHour = toHour;
-  schedules[scheduleId].toMinute = toMinute;
+  schedules[scheduleId].duration = duration;
 
   bitWrite(schedules[scheduleId].days, 7, days[0]);
   bitWrite(schedules[scheduleId].days, 6, days[1]);
@@ -581,8 +575,7 @@ void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinut
   Serial.println(valveId);
   Serial.println(fromHour);
   Serial.println(fromMinute);
-  Serial.println(toHour);
-  Serial.println(toMinute);
+  Serial.println(duration);
 
   Serial.println("Days");
   for(int i = 0; i < 7; i++){
@@ -607,8 +600,7 @@ void onScheduleDeleteRoute() {
   schedules[scheduleId].valveId = -1;
   schedules[scheduleId].fromHour = 0;
   schedules[scheduleId].fromMinute = 0;
-  schedules[scheduleId].toHour = 0;
-  schedules[scheduleId].toMinute = 0;
+  schedules[scheduleId].duration = 0;
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
