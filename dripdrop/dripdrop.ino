@@ -12,9 +12,13 @@
 #define DS1307_ADDRESS 0x68
 #define EEPROM_SIZE 4096
 
-const char *hotspotSsid = "DripDrop";
-const char *hotspotPassword = "dripdrop";
+const char *WIFI_SSID = "";
+const char *WIFI_PASSWORD = "";
 
+const char *HOTSPOT_SSID = "DripDrop";
+const char *HOTSPOT_PASSWORD = "dripdrop";
+
+const uint8_t TEMP_DST_MAGIC_NUMBER = 7200;
 
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
@@ -32,14 +36,14 @@ typedef struct
   int lastRunStart;
   int lastRunEnd;
   bool isManuallyStarted;
-  
+
 } valve;
 
 valve valves[4] {
-  {1, D4, 0,0, false},
-  {2, D5, 0,0, false},
-  {3, D6, 0,0, false},
-  {4, D7, 0,0, false}
+  {1, D4, 0, 0, false},
+  {2, D5, 0, 0, false},
+  {3, D6, 0, 0, false},
+  {4, D7, 0, 0, false}
 };
 
 typedef struct
@@ -50,7 +54,7 @@ typedef struct
   uint8_t fromMinute;
   uint8_t duration;
   byte days;
-  
+
 } valveSchedule;
 
 valveSchedule schedules[32];
@@ -76,7 +80,7 @@ void setup()
   Serial.println("Setting up");
 
   // Set up RTC
-//  rtc.begin();
+  //  rtc.begin();
 
   // Set up valve pins
   for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
@@ -87,18 +91,18 @@ void setup()
 
   // Set up WiFi
 
-  if(ssid){
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    while (WiFi.waitForConnectResult() != WL_CONNECTED)
-    {
-      Serial.println("Couldn't connect to WiFi, restarting in 10 seconds");
-      delay(10000);
-      ESP.restart();
-    }
-  }else{
-     WiFi.softAP(hotspotSsid, hotspotPassword);
-  }  
+  //if(WIFI_SSID){
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.waitForConnectResult() != WL_CONNECTED)
+  {
+    Serial.println("Couldn't connect to WiFi, restarting in 10 seconds");
+    delay(10000);
+    ESP.restart();
+  }
+  /* }else{
+      WiFi.softAP(HOTSPOT_SSID, HOTSPOT_PASSWORD);
+    }*/
 
   Serial.print("IP adress:\t");
   Serial.println(WiFi.localIP());
@@ -162,8 +166,8 @@ void setup()
 
   httpUpdater.setup(&server);
   server.enableCORS(true);
-  server.begin();  
-  
+  server.begin();
+
 }
 
 void loop()
@@ -171,9 +175,9 @@ void loop()
   static unsigned long last_valve_run_check = 0;
   static unsigned long last_sensor_run_check = 0;
 
-  
+
   server.handleClient();
- 
+
   if (millis() - last_sensor_run_check > SENSOR_CHECK_INTERVAL)
   {
     // Not yet implemented
@@ -184,12 +188,12 @@ void loop()
   {
     last_valve_run_check = millis();
     checkValveSchedule();
-    checkValveTimers();    
+    checkValveTimers();
   }
 }
 
 void setCors() {
-    if (server.hasHeader("Access-Control-Allow-Headers") == false) {
+  if (server.hasHeader("Access-Control-Allow-Headers") == false) {
     Serial.println("Dont have Access-Control-Allow-Headers");
     server.sendHeader("Access-Control-Allow-Headers", "*");
   } else {
@@ -226,39 +230,40 @@ void checkValveSchedule()
   DateTime now = rtc.now();
   for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
   {
-     if (schedules[i].valveId < 0) {
+    if (schedules[i].valveId < 0) {
       continue;
     }
-    
+
     if (valves[schedules[i].valveId].isManuallyStarted == true) {
       Serial.println("Valve is manually started, skipping schedule");
       continue;
     }
-   
+
     if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].duration == 0) {
       Serial.println("Schedule empty");
       continue;
     }
-    
-    if(bitRead(schedules[i].days, 7 - now.dayOfTheWeek())){
+
+    if (bitRead(schedules[i].days, 7 - now.dayOfTheWeek()) == 0) {
       Serial.println("Schedule not active today");
+      Serial.println(bitRead(schedules[i].days, 1));
       continue;
     }
 
-    uint8_t valvePin = getValvePinId(schedules[i].valveId);    
+    uint8_t valvePin = getValvePinId(schedules[i].valveId);
     DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0).unixtime();
     int fromUnixtime = from.unixtime();
-    int toUnixtime = fromUnixtime + (schedules[i].duration * 1000);
-    int unixtime = now.unixtime();
-    
+    int toUnixtime = fromUnixtime + schedules[i].duration;
+    int unixtime = now.unixtime() + TEMP_DST_MAGIC_NUMBER;
+
     pinMode(valvePin, OUTPUT);
     if (fromUnixtime <= unixtime && toUnixtime >= unixtime) {
       Serial.println("Schedule, on");
-      valves[schedules[i].valveId - 1].lastRunStart = fromUnixtime;
+      valves[schedules[i].valveId - 1].lastRunStart = fromUnixtime - TEMP_DST_MAGIC_NUMBER;
       digitalWrite(valvePin, LOW);
     } else {
       Serial.println("Schedule, off");
-      valves[schedules[i].valveId - 1].lastRunEnd = toUnixtime;
+      valves[schedules[i].valveId - 1].lastRunEnd = toUnixtime - TEMP_DST_MAGIC_NUMBER;
       digitalWrite(valvePin, HIGH);
     }
   }
@@ -332,7 +337,7 @@ void onValveStateRoute()
   pinMode(valvePin, OUTPUT);
   bool val = digitalRead(valvePin) == LOW;
 
-  server.send(200, "application/json", "{\"message\": \""+ String(val)+"\"}");
+  server.send(200, "application/json", "{\"message\": \"" + String(val) + "\"}");
 }
 
 void onValvesAllOffRoute()
@@ -358,7 +363,7 @@ void onValveStateChangeOnRoute()
   digitalWrite(valvePin, LOW);
   valves[valveId].isManuallyStarted = true;
   valves[valveId - 1].lastRunStart = now.unixtime();
-  
+
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
@@ -372,7 +377,7 @@ void onValveStateChangeOffRoute()
   uint8_t valvePin = getValvePinId(valveId);
   pinMode(valvePin, OUTPUT);
   digitalWrite(valvePin, HIGH);
-  valves[valveId].isManuallyStarted = false;  
+  valves[valveId].isManuallyStarted = false;
   valves[valveId - 1].lastRunEnd = now.unixtime();
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
@@ -403,7 +408,7 @@ void onSystemTimeSetRoute()
   uint8_t second = doc["second"];
 
   rtc.adjust(DateTime(year, month, day, hour, minute, second));
-  
+
   delay(100);
 
   DateTime now = rtc.now();
@@ -456,7 +461,7 @@ void onTimerPostRoute()
 
   timers[valveId - 1].to = to;
 
- 
+
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
@@ -490,13 +495,13 @@ void onScheduleGetRoute()
     output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
     output = output + "\"duration\":" + String(schedules[i].duration) + ",";
     output = output + "\"days\":[";
-    output = output + String(bitRead(schedules[i].days,7) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,6) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,5) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,4) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,3) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,2) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days,1) == 1 ? "true" : "false");
+    output = output + String(bitRead(schedules[i].days, 7) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 6) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 5) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 4) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 3) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 2) == 1 ? "true" : "false") + ",";
+    output = output + String(bitRead(schedules[i].days, 1) == 1 ? "true" : "false");
     output = output + "]}";
 
     if (i < arrLen - 1)
@@ -517,14 +522,14 @@ void onSchedulePostRoute()
   DynamicJsonDocument doc(512);
   DeserializationError error = deserializeJson(doc, server.arg("plain"));
 
-  
+
 
   uint8_t scheduleId = 0;
   uint8_t valveId = doc["valveId"];
   uint8_t fromHour = doc["fromHour"];
   uint8_t fromMinute = doc["fromMinute"];
   uint8_t duration = doc["duration"];
-  
+
   int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
   {
@@ -534,12 +539,12 @@ void onSchedulePostRoute()
     }
   }
 
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,duration, doc["days"]);
-   
+  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute, duration, doc["days"]);
+
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
-void onScheduleUpdateRoute(){
+void onScheduleUpdateRoute() {
   setCors();
 
   DynamicJsonDocument doc(512);
@@ -552,12 +557,12 @@ void onScheduleUpdateRoute(){
   uint8_t fromMinute = doc["fromMinute"];
   uint8_t duration = doc["duration"];
 
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute,duration, doc["days"]);
-  
+  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute, duration, doc["days"]);
+
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
-void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinute, int duration, JsonArray days){
+void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinute, int duration, JsonArray days) {
   schedules[scheduleId].valveId = valveId;
   schedules[scheduleId].fromHour = fromHour;
   schedules[scheduleId].fromMinute = fromMinute;
@@ -570,7 +575,7 @@ void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinut
   bitWrite(schedules[scheduleId].days, 3, days[4]);
   bitWrite(schedules[scheduleId].days, 2, days[5]);
   bitWrite(schedules[scheduleId].days, 1, days[6]);
-            
+
   Serial.println("Saving new schedule item");
   Serial.println(valveId);
   Serial.println(fromHour);
@@ -578,16 +583,16 @@ void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinut
   Serial.println(duration);
 
   Serial.println("Days");
-  for(int i = 0; i < 7; i++){
+  for (int i = 0; i < 7; i++) {
     Serial.println(String(i) + "  " + String(days[i]));
   }
-Serial.println("/ Days");
+  Serial.println("/ Days");
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
   EEPROM.commit();
   delay(200);
-  
+
   Serial.println("Saved new schedule item");
 }
 
@@ -610,18 +615,18 @@ void onScheduleDeleteRoute() {
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
-void onScheduleDeleteAllRoute(){
- int arrLen = sizeof(schedules) / sizeof(valveSchedule);
+void onScheduleDeleteAllRoute() {
+  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
   for (int i = 0; i < arrLen; ++i)
   {
-      schedules[i].valveId = -1;
+    schedules[i].valveId = -1;
   }
 
   EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
   delay(200);
   EEPROM.commit();
   delay(200);
-  
+
   server.send(200, "application/json", "{\"message\": \"ok\"}");
 }
 
