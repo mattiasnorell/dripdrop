@@ -1,641 +1,961 @@
-#include <Wire.h>;
+/**
+ * DripDrop - Automated Irrigation System
+ * 
+ * An ESP8266-based irrigation controller with WiFi connectivity,
+ * web API, scheduling, and NTP time synchronization.
+ * 
+ * Features:
+ * - Control up to 4 irrigation valves
+ * - Schedule-based automatic irrigation with second precision
+ * - One-time timer support
+ * - Manual valve control via REST API
+ * - NTP time synchronization
+ * - OTA firmware updates
+ * - mDNS discovery (dripdrop.local)
+ * - EEPROM persistence with validation
+ * - Watchdog timer for reliability
+ * - WiFi auto-reconnection
+ * 
+ * @author DripDrop Team
+ * @version 3.0.0-rc5
+ */
+
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include<ESP8266HTTPUpdateServer.h>
+#include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
-//#include "AppHtml.h";
-#include <string>;
-#include "RTClib.h";
 #include <EEPROM.h>
 #include <ArduinoJson.h>
+#include <time.h>
+#include <Ticker.h>
 
-#define DS1307_ADDRESS 0x68
-#define EEPROM_SIZE 4096
+#include "config.h"
+#include "types.h"
+#include "valves.h"
+#include "scheduler.h"
+#include "timers.h"
 
-const char *WIFI_SSID = "";
-const char *WIFI_PASSWORD = "";
+// =============================================================================
+// Global Objects
+// =============================================================================
 
-const char *HOTSPOT_SSID = "DripDrop";
-const char *HOTSPOT_PASSWORD = "dripdrop";
-
-const uint8_t TEMP_DST_MAGIC_NUMBER = 7200;
-
-ESP8266WebServer server(80);
+ESP8266WebServer server(HTTP_PORT);
 ESP8266HTTPUpdateServer httpUpdater;
-RTC_Millis rtc;
+Ticker watchdogTicker;
 
-const int VALVE_CHECK_INTERVAL = 5000;
-const int SENSOR_CHECK_INTERVAL = 60000;
+// =============================================================================
+// Global State
+// =============================================================================
 
-const int SCHEDULE_EEPROM_ADRESS = 100;
+static unsigned long lastScheduleCheck = 0;
+static unsigned long lastWifiCheck = 0;
+static unsigned long lastNtpSync = 0;
+static bool ntpSynced = false;
+static bool apMode = false;
+static volatile bool watchdogFlag = false;
 
-typedef struct
-{
-  int id;
-  uint8_t pinId;
-  int lastRunStart;
-  int lastRunEnd;
-  bool isManuallyStarted;
+// =============================================================================
+// Forward Declarations
+// =============================================================================
 
-} valve;
+// Setup functions
+void setupWiFi();
+void setupMdns();
+void setupNtp();
+void setupWatchdog();
+void setupRoutes();
 
-valve valves[4] {
-  {1, D4, 0, 0, false},
-  {2, D5, 0, 0, false},
-  {3, D6, 0, 0, false},
-  {4, D7, 0, 0, false}
-};
+// Loop helpers
+void checkWiFiConnection();
+void feedWatchdog();
 
-typedef struct
-{
-  int scheduleId;
-  int valveId;
-  uint8_t fromHour;
-  uint8_t fromMinute;
-  uint8_t duration;
-  byte days;
+// HTTP handlers
+void handleRoot();
+void handleOptions();
+void handleNotFound();
+void handleSystemStatus();
+void handleSystemIp();
+void handleSystemPing();
+void handleSystemTime();
+void handleSystemTimePost();
+void handleSystemReboot();
+void handleValveList();
+void handleValveState();
+void handleValveOn();
+void handleValveOff();
+void handleValvesAllOff();
+void handleTimerGet();
+void handleTimerPost();
+void handleTimerAbort();
+void handleScheduleList();
+void handleScheduleAdd();
+void handleScheduleUpdate();
+void handleScheduleDelete();
+void handleScheduleDeleteAll();
 
-} valveSchedule;
+// Utility functions
+void sendJsonResponse(int code, const char* message);
+void sendJsonError(int code, const char* error);
+void sendCorsHeaders();
+bool parseJsonBody(JsonDocument& doc);
+bool checkApiAuth();
+SystemStatus getSystemStatus();
 
-valveSchedule schedules[32];
+// =============================================================================
+// Watchdog Callback
+// =============================================================================
 
-typedef struct
-{
-  int valveId;
-  int to;
-} valveTimer;
+void IRAM_ATTR watchdogCallback() {
+  watchdogFlag = true;
+}
 
-valveTimer timers[4] {
-  {1, -1},
-  {2, -1},
-  {3, -1},
-  {4, -1}
-};
+// =============================================================================
+// Setup
+// =============================================================================
 
-
-void setup()
-{
-  // Set up logging
-  Serial.begin(115200);
-  Serial.println("Setting up");
-
-  // Set up RTC
-  //  rtc.begin();
-
-  // Set up valve pins
-  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
-  {
-    pinMode(valves[i].pinId, OUTPUT);
-    digitalWrite(valves[i].pinId, HIGH);
-  }
-
-  // Set up WiFi
-
-  //if(WIFI_SSID){
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED)
-  {
-    Serial.println("Couldn't connect to WiFi, restarting in 10 seconds");
-    delay(10000);
-    ESP.restart();
-  }
-  /* }else{
-      WiFi.softAP(HOTSPOT_SSID, HOTSPOT_PASSWORD);
-    }*/
-
-  Serial.print("IP adress:\t");
-  Serial.println(WiFi.localIP());
-
-  // Set up mDNS
-  if (MDNS.begin("dripdrop"))
-  {
-    Serial.println("mDNS responder started");
-    MDNS.addService("http", "tcp", 80);
-  }
-  else
-  {
-    Serial.println("Error setting up MDNS responder!");
-  }
-
+void setup() {
+  // Initialize serial first for debug output
+  Serial.begin(SERIAL_BAUD_RATE);
+  delay(100);
+  
+  DEBUG_PRINTLN(F("\n\n========================================"));
+  DEBUG_PRINTF("%s v%s\n", FIRMWARE_NAME, FIRMWARE_VERSION);
+  DEBUG_PRINTLN(F("========================================\n"));
+  
+  // Initialize EEPROM early
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(SCHEDULE_EEPROM_ADRESS, schedules);
-  delay(1000);
-
-  // Set up routes
-  server.on("/", HTTP_GET, onRootRoute);
-
-  server.on("/system/ip", HTTP_OPTIONS, onOptionRoute);
-  server.on("/system/ip", HTTP_GET, onSystemIpRoute);
-  server.on("/system/ping", HTTP_OPTIONS, onOptionRoute);
-  server.on("/system/ping", HTTP_GET, onSystemPingRoute);
-
-  server.on("/system/time", HTTP_OPTIONS, onOptionRoute);
-  server.on("/system/time", HTTP_GET, onSystemTimeGetRoute);
-  server.on("/system/time", HTTP_POST, onSystemTimeSetRoute);
-
-  server.on("/valve/state/on", HTTP_OPTIONS, onOptionRoute);
-  server.on("/valve/state/on", HTTP_POST, onValveStateChangeOnRoute);
-  server.on("/valve/state/off", HTTP_OPTIONS, onOptionRoute);
-  server.on("/valve/state/off", HTTP_POST, onValveStateChangeOffRoute);
-  server.on("/valve/state", HTTP_OPTIONS, onOptionRoute);
-  server.on("/valve/state", HTTP_GET, onValveStateRoute);
-  server.on("/valves/off", HTTP_OPTIONS, onOptionRoute);
-  server.on("/valves/off", HTTP_POST, onValvesAllOffRoute);
-  server.on("/valves", HTTP_OPTIONS, onOptionRoute);
-  server.on("/valves", HTTP_GET, onValveListRoute);
-
-  server.on("/timer", HTTP_OPTIONS, onOptionRoute);
-  server.on("/timer", HTTP_POST, onTimerPostRoute);
-  server.on("/timer", HTTP_GET, onTimerGetRoute);
-  server.on("/timer/abort", HTTP_OPTIONS, onOptionRoute);
-  server.on("/timer/abort", HTTP_POST, onTimerAbortPostRoute);
-
-  server.on("/schedule/list", HTTP_OPTIONS, onOptionRoute);
-  server.on("/schedule/list", HTTP_GET, onScheduleGetRoute);
-  server.on("/schedule/add", HTTP_OPTIONS, onOptionRoute);
-  server.on("/schedule/add", HTTP_POST, onSchedulePostRoute);
-  server.on("/schedule/update", HTTP_OPTIONS, onOptionRoute);
-  server.on("/schedule/update", HTTP_POST, onScheduleUpdateRoute);
-  server.on("/schedule/delete", HTTP_OPTIONS, onOptionRoute);
-  server.on("/schedule/delete", HTTP_POST, onScheduleDeleteRoute);
-  server.on("/schedule/deleteAll", HTTP_OPTIONS, onOptionRoute);
-  server.on("/schedule/deleteAll", HTTP_POST, onScheduleDeleteAllRoute);
-
-  server.onNotFound(onRouteNotFound);
-
+  
+  // Initialize hardware controllers
+  Valves.begin();
+  Timers.begin();
+  Scheduler.begin();
+  
+  // Setup networking
+  setupWiFi();
+  setupMdns();
+  setupNtp();
+  
+  // Setup HTTP server
+  setupRoutes();
   httpUpdater.setup(&server);
   server.enableCORS(true);
+  server.collectHeaders(API_KEY_HEADER);
   server.begin();
-
+  
+  // Setup watchdog last (after all initialization)
+  setupWatchdog();
+  
+  DEBUG_PRINTLN(F("\n========================================"));
+  DEBUG_PRINTLN(F("Setup complete! Server running."));
+  DEBUG_PRINTF("IP Address: %s\n", 
+               apMode ? WiFi.softAPIP().toString().c_str() 
+                      : WiFi.localIP().toString().c_str());
+  DEBUG_PRINTF("Free heap: %u bytes\n", ESP.getFreeHeap());
+  DEBUG_PRINTLN(F("========================================\n"));
 }
 
-void loop()
-{
-  static unsigned long last_valve_run_check = 0;
-  static unsigned long last_sensor_run_check = 0;
+// =============================================================================
+// Main Loop
+// =============================================================================
 
-
+void loop() {
+  // Feed the watchdog
+  feedWatchdog();
+  
+  // Handle HTTP requests
   server.handleClient();
-
-  if (millis() - last_sensor_run_check > SENSOR_CHECK_INTERVAL)
-  {
-    // Not yet implemented
-    last_sensor_run_check = millis();
+  
+  // Update mDNS
+  MDNS.update();
+  
+  unsigned long now = millis();
+  time_t currentTime = time(nullptr);
+  
+  // Check WiFi connection periodically
+  if (now - lastWifiCheck >= WIFI_RECONNECT_INTERVAL_MS) {
+    lastWifiCheck = now;
+    checkWiFiConnection();
   }
+  
+  // Check schedules and timers periodically
+  if (now - lastScheduleCheck >= SCHEDULE_CHECK_INTERVAL_MS) {
+    lastScheduleCheck = now;
+    
+    if (ntpSynced) {
+      Scheduler.check(currentTime);
+      Timers.check(currentTime);
+    }
+  }
+  
+  // Sync NTP status - check every loop until synced, then hourly
+  if (!ntpSynced) {
+    if (currentTime > MIN_VALID_UNIX_TIME) {
+      ntpSynced = true;
+      lastNtpSync = now;
+      DEBUG_PRINTLN(F("NTP synchronized"));
+    }
+  } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
+    lastNtpSync = now;
+  }
+  
+  // Small yield to prevent watchdog issues
+  yield();
+}
 
-  if (millis() - last_valve_run_check > VALVE_CHECK_INTERVAL)
-  {
-    last_valve_run_check = millis();
-    checkValveSchedule();
-    checkValveTimers();
+// =============================================================================
+// Setup Functions
+// =============================================================================
+
+void setupWiFi() {
+  // Check if credentials are configured
+  if (strlen(WIFI_SSID) == 0) {
+    DD_DEBUG_WIFI("No WiFi credentials configured, starting AP mode\n");
+    apMode = true;
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    DD_DEBUG_WIFI("AP started: %s\n", AP_SSID);
+    DD_DEBUG_WIFI("AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+    return;
+  }
+  
+  DD_DEBUG_WIFI("Connecting to %s", WIFI_SSID);
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
+  uint8_t attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < WIFI_CONNECT_TIMEOUT_SEC) {
+    delay(1000);
+    DEBUG_PRINT(".");
+    attempts++;
+  }
+  DEBUG_PRINTLN();
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    apMode = false;
+    DD_DEBUG_WIFI("Connected!\n");
+    DD_DEBUG_WIFI("IP: %s\n", WiFi.localIP().toString().c_str());
+    DD_DEBUG_WIFI("RSSI: %d dBm\n", WiFi.RSSI());
+  } else {
+    DD_DEBUG_WIFI("Connection failed, starting AP mode\n");
+    apMode = true;
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    DD_DEBUG_WIFI("AP started: %s\n", AP_SSID);
   }
 }
 
-void setCors() {
-  if (server.hasHeader("Access-Control-Allow-Headers") == false) {
-    Serial.println("Dont have Access-Control-Allow-Headers");
-    server.sendHeader("Access-Control-Allow-Headers", "*");
+void setupMdns() {
+  if (MDNS.begin(MDNS_HOSTNAME)) {
+    DEBUG_PRINTF("mDNS started: %s.local\n", MDNS_HOSTNAME);
+    MDNS.addService("http", "tcp", HTTP_PORT);
+    MDNS.addService("dripdrop", "tcp", HTTP_PORT);
   } else {
-    Serial.println("Has Access-Control-Allow-Headers");
+    DEBUG_PRINTLN(F("mDNS failed to start"));
   }
-  if (server.hasHeader("Access-Control-Allow-Methods") == false) {
-    Serial.println("Dont have Access-Control-Allow-Methods");
-    server.sendHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
-  } else {
-    Serial.println("Has Access-Control-Allow-Methods");
-  }
-  if (server.hasHeader("Access-Control-Allow-Max-Age") == false) {
-    Serial.println("Dont have Access-Control-Allow-Max-Age");
-    server.sendHeader("Access-Control-Allow-Max-Age", "600");
-  } else {
-    Serial.println("Has Access-Control-Allow-Max-Age");
-  }
-};
-
-// Routing handlers
-void onRootRoute()
-{
-  server.send(200, "text/html", "Drip Drop!");
 }
 
-void onOptionRoute() {
-  server.sendHeader("access-control-allow-credentials", "false");
-  setCors();
+void setupNtp() {
+  configTime(TIMEZONE_OFFSET_SEC, DST_OFFSET_SEC, NTP_SERVER_PRIMARY, NTP_SERVER_SECONDARY);
+  DEBUG_PRINTLN(F("NTP configured"));
+}
+
+void setupWatchdog() {
+  // Use Ticker for software watchdog
+  watchdogTicker.attach_ms(WATCHDOG_TIMEOUT_MS / 2, watchdogCallback);
+  DEBUG_PRINTLN(F("Watchdog enabled"));
+}
+
+void checkWiFiConnection() {
+  if (apMode) return;  // Don't check if in AP mode
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    DD_DEBUG_WIFI("Connection lost, reconnecting...\n");
+    WiFi.reconnect();
+  }
+}
+
+void feedWatchdog() {
+  if (watchdogFlag) {
+    watchdogFlag = false;
+    ESP.wdtFeed();  // Feed the hardware watchdog
+  }
+}
+
+// =============================================================================
+// HTTP Route Setup
+// =============================================================================
+
+void setupRoutes() {
+  // Root & system
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/system/status", HTTP_GET, handleSystemStatus);
+  server.on("/system/status", HTTP_OPTIONS, handleOptions);
+  server.on("/system/ip", HTTP_GET, handleSystemIp);
+  server.on("/system/ip", HTTP_OPTIONS, handleOptions);
+  server.on("/system/ping", HTTP_GET, handleSystemPing);
+  server.on("/system/ping", HTTP_OPTIONS, handleOptions);
+  server.on("/system/time", HTTP_GET, handleSystemTime);
+  server.on("/system/time", HTTP_POST, handleSystemTimePost);
+  server.on("/system/time", HTTP_OPTIONS, handleOptions);
+  server.on("/system/reboot", HTTP_POST, handleSystemReboot);
+  server.on("/system/reboot", HTTP_OPTIONS, handleOptions);
+  
+  // Valves
+  server.on("/valves", HTTP_GET, handleValveList);
+  server.on("/valves", HTTP_OPTIONS, handleOptions);
+  server.on("/valves/off", HTTP_POST, handleValvesAllOff);
+  server.on("/valves/off", HTTP_OPTIONS, handleOptions);
+  server.on("/valve/state", HTTP_GET, handleValveState);
+  server.on("/valve/state", HTTP_OPTIONS, handleOptions);
+  server.on("/valve/state/on", HTTP_POST, handleValveOn);
+  server.on("/valve/state/on", HTTP_OPTIONS, handleOptions);
+  server.on("/valve/state/off", HTTP_POST, handleValveOff);
+  server.on("/valve/state/off", HTTP_OPTIONS, handleOptions);
+  
+  // Timers
+  server.on("/timer", HTTP_GET, handleTimerGet);
+  server.on("/timer", HTTP_POST, handleTimerPost);
+  server.on("/timer", HTTP_OPTIONS, handleOptions);
+  server.on("/timer/abort", HTTP_POST, handleTimerAbort);
+  server.on("/timer/abort", HTTP_OPTIONS, handleOptions);
+  
+  // Schedules
+  server.on("/schedule/list", HTTP_GET, handleScheduleList);
+  server.on("/schedule/list", HTTP_OPTIONS, handleOptions);
+  server.on("/schedule/add", HTTP_POST, handleScheduleAdd);
+  server.on("/schedule/add", HTTP_OPTIONS, handleOptions);
+  server.on("/schedule/update", HTTP_POST, handleScheduleUpdate);
+  server.on("/schedule/update", HTTP_OPTIONS, handleOptions);
+  server.on("/schedule/delete", HTTP_POST, handleScheduleDelete);
+  server.on("/schedule/delete", HTTP_OPTIONS, handleOptions);
+  server.on("/schedule/deleteAll", HTTP_POST, handleScheduleDeleteAll);
+  server.on("/schedule/deleteAll", HTTP_OPTIONS, handleOptions);
+  
+  // 404
+  server.onNotFound(handleNotFound);
+}
+
+// =============================================================================
+// HTTP Handlers - System
+// =============================================================================
+
+void handleRoot() {
+  static const char html[] PROGMEM = R"(<!DOCTYPE html>
+<html><head><title>DripDrop</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui;max-width:600px;margin:40px auto;padding:20px;background:#f5f5f5}
+h1{color:#2d5a27}a{color:#4a7c43}</style></head>
+<body><h1>DripDrop Irrigation</h1><p>API is running. <a href="/system/status">System Status</a></p></body></html>)";
+  
+  server.send_P(200, "text/html", html);
+}
+
+void handleOptions() {
+  sendCorsHeaders();
   server.send(204);
 }
 
-void checkValveSchedule()
-{
-  DateTime now = rtc.now();
-  for (int i = 0; i < sizeof(schedules) / sizeof(valveSchedule); ++i)
-  {
-    if (schedules[i].valveId < 0) {
-      continue;
-    }
-
-    if (valves[schedules[i].valveId].isManuallyStarted == true) {
-      Serial.println("Valve is manually started, skipping schedule");
-      continue;
-    }
-
-    if (schedules[i].fromHour == 0 && schedules[i].fromMinute == 0 && schedules[i].duration == 0) {
-      Serial.println("Schedule empty");
-      continue;
-    }
-
-    if (bitRead(schedules[i].days, 7 - now.dayOfTheWeek()) == 0) {
-      Serial.println("Schedule not active today");
-      Serial.println(bitRead(schedules[i].days, 1));
-      continue;
-    }
-
-    uint8_t valvePin = getValvePinId(schedules[i].valveId);
-    DateTime from = DateTime(now.year(), now.month(), now.day(), schedules[i].fromHour, schedules[i].fromMinute, 0).unixtime();
-    int fromUnixtime = from.unixtime();
-    int toUnixtime = fromUnixtime + schedules[i].duration;
-    int unixtime = now.unixtime() + TEMP_DST_MAGIC_NUMBER;
-
-    pinMode(valvePin, OUTPUT);
-    if (fromUnixtime <= unixtime && toUnixtime >= unixtime) {
-      Serial.println("Schedule, on");
-      valves[schedules[i].valveId - 1].lastRunStart = fromUnixtime - TEMP_DST_MAGIC_NUMBER;
-      digitalWrite(valvePin, LOW);
-    } else {
-      Serial.println("Schedule, off");
-      valves[schedules[i].valveId - 1].lastRunEnd = toUnixtime - TEMP_DST_MAGIC_NUMBER;
-      digitalWrite(valvePin, HIGH);
-    }
-  }
+void handleNotFound() {
+  sendJsonError(404, "Not Found");
 }
 
-void checkValveTimers()
-{
-  Serial.println("Check timers");
-  DateTime now = rtc.now();
-  int unixtime = now.unixtime();
-  for (int i = 0; i < sizeof(timers) / sizeof(valveTimer); ++i)
-  {
-    if (timers[i].to < 0) {
-      continue;
-    }
-
-    uint8_t valvePin = getValvePinId(timers[i].valveId);
-    pinMode(valvePin, OUTPUT);
-
-    if (timers[i].to > unixtime) {
-      valves[timers[i].valveId - 1].lastRunStart = unixtime;
-      Serial.println("Timer, on");
-      digitalWrite(valvePin, LOW);
-    } else {
-      timers[i].to = -1;
-      valves[timers[i].valveId - 1].lastRunEnd = unixtime;
-      Serial.println("Timer, off");
-      digitalWrite(valvePin, HIGH);
-    }
-  }
-}
-
-uint8_t getValvePinId(int valveId) {
-  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
-  {
-    if (valves[i].id == valveId) {
-      return valves[i].pinId;
-    }
-  }
-}
-
-/*
-  Valve settings
-*/
-void onValveListRoute() {
-  String output = "[";
-
-  int arrLen = sizeof(valves) / sizeof(valve);
-  for (int i = 0; i < arrLen; ++i)
-  {
-    output = output + "{";
-    output = output + "\"id\":" + String(valves[i].id) + ",";
-    output = output + "\"lastRunStart\":" + String(valves[i].lastRunStart) + ",";
-    output = output + "\"lastRunEnd\":" + String(valves[i].lastRunEnd);
-    output = output + "}";
-
-    if (i < arrLen - 1) {
-      output = output + ",";
-    }
-  }
-
-  output = output + "]";
-
-  server.send(200, "text/plain", output);
-}
-
-void onValveStateRoute()
-{
-  int valveId = server.arg("valveId").toInt();
-  uint8_t valvePin = getValvePinId(valveId);
-  pinMode(valvePin, OUTPUT);
-  bool val = digitalRead(valvePin) == LOW;
-
-  server.send(200, "application/json", "{\"message\": \"" + String(val) + "\"}");
-}
-
-void onValvesAllOffRoute()
-{
-  for (int i = 0; i < sizeof(valves) / sizeof(valve); ++i)
-  {
-    pinMode(valves[i].pinId, OUTPUT);
-    digitalWrite(valves[i].pinId, LOW);
-  }
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-void onValveStateChangeOnRoute()
-{
-  setCors();
-  DateTime now = rtc.now();
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-  int valveId = doc["valveId"];
-  uint8_t valvePin = getValvePinId(valveId);
-  pinMode(valvePin, OUTPUT);
-  digitalWrite(valvePin, LOW);
-  valves[valveId].isManuallyStarted = true;
-  valves[valveId - 1].lastRunStart = now.unixtime();
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-void onValveStateChangeOffRoute()
-{
-  setCors();
-  DateTime now = rtc.now();
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-  int valveId = doc["valveId"];
-  uint8_t valvePin = getValvePinId(valveId);
-  pinMode(valvePin, OUTPUT);
-  digitalWrite(valvePin, HIGH);
-  valves[valveId].isManuallyStarted = false;
-  valves[valveId - 1].lastRunEnd = now.unixtime();
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-/*
-  System - Network settings
-*/
-void onSystemIpRoute()
-{
-  server.send(200, "text/plain", WiFi.localIP().toString());
-}
-
-/*
-  System - Time settings
-*/
-
-void onSystemTimeSetRoute()
-{
-  setCors();
-
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-  uint16_t year = doc["year"];
-  uint8_t month = doc["month"];
-  uint8_t day = doc["day"];
-  uint8_t hour = doc["hour"];
-  uint8_t minute = doc["minute"];
-  uint8_t second = doc["second"];
-
-  rtc.adjust(DateTime(year, month, day, hour, minute, second));
-
-  delay(100);
-
-  DateTime now = rtc.now();
-
-  server.send(200, "text/plain", String(now.unixtime()));
-}
-
-void onSystemTimeGetRoute()
-{
-  setCors();
-  DateTime now = rtc.now();
-  server.send(200, "text/plain", String(now.unixtime()));
-}
-
-/*
-  Timers
-*/
-void onTimerGetRoute()
-{
-  String output = "[";
-  int arrLen = sizeof(timers) / sizeof(valveTimer);
-  for (int i = 0; i < arrLen; ++i)
-  {
-    output = output + "{";
-    output = output + "\"valveId\":" + String(timers[i].valveId) + ",";
-    output = output + "\"to\":" + String(timers[i].to);
-    output = output + "}";
-
-    if (i < arrLen - 1) {
-      output = output + ",";
-    }
-  }
-
-  output = output + "]";
-
+void handleSystemStatus() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  SystemStatus status = getSystemStatus();
+  
+  JsonDocument doc;
+  doc["firmware"] = FIRMWARE_VERSION;
+  doc["uptime"] = status.uptime;
+  doc["uptimeFormatted"] = String(status.uptime / 86400000) + "d " + 
+                           String((status.uptime / 3600000) % 24) + "h " +
+                           String((status.uptime / 60000) % 60) + "m";
+  doc["freeHeap"] = status.freeHeap;
+  doc["wifiConnected"] = status.wifiConnected;
+  doc["wifiRssi"] = status.wifiRssi;
+  doc["apMode"] = status.apMode;
+  doc["ntpSynced"] = status.ntpSynced;
+  doc["currentTime"] = status.currentTime;
+  doc["activeValves"] = status.activeValves;
+  doc["activeSchedules"] = status.activeSchedules;
+  
+  String output;
+  serializeJson(doc, output);
   server.send(200, "application/json", output);
 }
 
-void onTimerPostRoute()
-{
-  setCors();
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-  uint8_t valveId = doc["valveId"];
-  int duration = doc["duration"];
-
-  DateTime now = rtc.now();
-  int unixtime = now.unixtime();
-  int to = unixtime + duration;
-
-  timers[valveId - 1].to = to;
-
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
+void handleSystemIp() {
+  sendCorsHeaders();
+  server.send(200, "text/plain", 
+              apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString());
 }
 
-void onTimerAbortPostRoute()
-{
-  setCors();
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-  uint8_t valveId = doc["valveId"];
-
-  timers[valveId - 1].to = -1;
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
+void handleSystemPing() {
+  sendCorsHeaders();
+  sendJsonResponse(200, "pong");
 }
 
-/*
-  Schedule
-*/
-
-void onScheduleGetRoute()
-{
-  setCors();
-  String output = "[";
-  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
-  for (int i = 0; i < arrLen; ++i)
-  {
-    output = output + "{";
-    output = output + "\"scheduleId\":" + String(i) + ",";
-    output = output + "\"valveId\":" + String(schedules[i].valveId) + ",";
-    output = output + "\"fromHour\":" + String(schedules[i].fromHour) + ",";
-    output = output + "\"fromMinute\":" + String(schedules[i].fromMinute) + ",";
-    output = output + "\"duration\":" + String(schedules[i].duration) + ",";
-    output = output + "\"days\":[";
-    output = output + String(bitRead(schedules[i].days, 7) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 6) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 5) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 4) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 3) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 2) == 1 ? "true" : "false") + ",";
-    output = output + String(bitRead(schedules[i].days, 1) == 1 ? "true" : "false");
-    output = output + "]}";
-
-    if (i < arrLen - 1)
-    {
-      output = output + ",";
-    }
+void handleSystemTime() {
+  sendCorsHeaders();
+  
+  JsonDocument doc;
+  time_t now = time(nullptr);
+  doc["unixTime"] = now;
+  doc["synced"] = ntpSynced;
+  
+  if (ntpSynced) {
+    struct tm timeInfo;
+    localtime_r(&now, &timeInfo);
+    
+    char buffer[32];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeInfo);
+    doc["formatted"] = buffer;
+    doc["dayOfWeek"] = timeInfo.tm_wday;
   }
-
-  output = output + "]";
-
+  
+  String output;
+  serializeJson(doc, output);
   server.send(200, "application/json", output);
 }
 
-void onSchedulePostRoute()
-{
-  setCors();
+void handleSystemTimePost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
 
-  DynamicJsonDocument doc(512);
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON body");
+    return;
+  }
+
+  if (!doc["unixTime"].is<long>()) {
+    sendJsonError(400, "unixTime (integer) is required");
+    return;
+  }
+
+  time_t newTime = doc["unixTime"];
+  if (newTime <= MIN_VALID_UNIX_TIME) {
+    sendJsonError(400, "unixTime value is invalid");
+    return;
+  }
+
+  struct timeval tv;
+  tv.tv_sec = newTime;
+  tv.tv_usec = 0;
+  settimeofday(&tv, nullptr);
+
+  ntpSynced = true;
+  lastNtpSync = millis();
+
+  sendJsonResponse(200, "ok");
+}
+
+void handleSystemReboot() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  sendJsonResponse(200, "Rebooting...");
+  delay(500);
+  ESP.restart();
+}
+
+// =============================================================================
+// HTTP Handlers - Valves
+// =============================================================================
+
+void handleValveList() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  time_t now = time(nullptr);
+  
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  
+  for (uint8_t i = 0; i < Valves.count(); i++) {
+    const Valve* valve = Valves.getValve(i);
+    if (!valve) continue;
+    
+    JsonObject obj = arr.add<JsonObject>();
+    obj["id"] = valve->id;
+    obj["isOn"] = valve->isOn;
+    obj["source"] = static_cast<int>(valve->source);
+    obj["lastRunStart"] = valve->lastRunStart;
+    obj["lastRunEnd"] = valve->lastRunEnd;
+    
+    // Add timer info if active
+    if (Timers.isActive(valve->id, now)) {
+      obj["timerRemaining"] = Timers.getRemainingSeconds(valve->id, now);
+    }
+  }
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleValveState() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  if (!server.hasArg("valveId")) {
+    sendJsonError(400, "Missing valveId parameter");
+    return;
+  }
+
+  uint8_t valveId = server.arg("valveId").toInt();
+  int8_t index = Valves.findByValveId(valveId);
+
+  if (index < 0) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+
+  const Valve* valve = Valves.getValve(index);
+  time_t now = time(nullptr);
+
+  JsonDocument doc;
+  doc["valveId"] = valveId;
+  doc["isOn"] = valve->isOn;
+  doc["source"] = static_cast<int>(valve->source);
+
+  if (Timers.isActive(valveId, now)) {
+    doc["timerRemaining"] = Timers.getRemainingSeconds(valveId, now);
+  }
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleValveOn() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["valveId"].is<int>()) {
+    sendJsonError(400, "Missing valveId");
+    return;
+  }
+
+  uint8_t valveId = doc["valveId"];
+  int8_t index = Valves.findByValveId(valveId);
+  
+  if (index < 0) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+  
+  Valves.setState(index, true, ValveSource::MANUAL);
+  sendJsonResponse(200, "ok");
+}
+
+void handleValveOff() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["valveId"].is<int>()) {
+    sendJsonError(400, "Missing valveId");
+    return;
+  }
+
+  uint8_t valveId = doc["valveId"];
+  int8_t index = Valves.findByValveId(valveId);
+
+  if (index < 0) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+
+  // Cancel any timer for this valve
+  Timers.abort(valveId);
+
+  Valves.setState(index, false, ValveSource::NONE);
+  sendJsonResponse(200, "ok");
+}
+
+void handleValvesAllOff() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  Timers.abortAll();
+  Valves.allOff();
+  sendJsonResponse(200, "ok");
+}
+
+// =============================================================================
+// HTTP Handlers - Timers
+// =============================================================================
+
+void handleTimerGet() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  time_t now = time(nullptr);
+  
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  
+  for (uint8_t i = 0; i < NUM_VALVES; i++) {
+    const Timer* timer = Timers.get(i);
+    if (!timer) continue;
+    
+    JsonObject obj = arr.add<JsonObject>();
+    obj["valveId"] = timer->valveId;
+    obj["endTime"] = timer->endTime;
+    obj["active"] = timer->isActive(now);
+    
+    if (timer->isActive(now)) {
+      obj["remaining"] = static_cast<long>(timer->endTime - now);
+    }
+  }
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleTimerPost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["valveId"].is<int>() || !doc["duration"].is<int>()) {
+    sendJsonError(400, "Missing valveId or duration");
+    return;
+  }
+
+  uint8_t valveId = doc["valveId"];
+  uint32_t duration = doc["duration"];
+
+  if (!Valves.isValidId(valveId)) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+
+  if (duration == 0 || duration > MAX_TIMER_DURATION_SEC) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Duration must be 1-%lu seconds", MAX_TIMER_DURATION_SEC);
+    sendJsonError(400, msg);
+    return;
+  }
+
+  if (!Timers.start(valveId, duration)) {
+    sendJsonError(500, "Failed to start timer");
+    return;
+  }
+  
+  sendJsonResponse(200, "ok");
+}
+
+void handleTimerAbort() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["valveId"].is<int>()) {
+    sendJsonError(400, "Missing valveId");
+    return;
+  }
+
+  uint8_t valveId = doc["valveId"];
+
+  if (!Valves.isValidId(valveId)) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+
+  Timers.abort(valveId);
+  sendJsonResponse(200, "ok");
+}
+
+// =============================================================================
+// HTTP Handlers - Schedules
+// =============================================================================
+
+void handleScheduleList() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  
+  for (uint8_t i = 0; i < Scheduler.maxSchedules(); i++) {
+    const Schedule* schedule = Scheduler.get(i);
+    if (!schedule || schedule->isEmpty()) continue;
+
+    JsonObject obj = arr.add<JsonObject>();
+    obj["scheduleId"] = i;
+    obj["valveId"] = schedule->valveId;
+    obj["fromHour"] = schedule->fromHour;
+    obj["fromMinute"] = schedule->fromMinute;
+    obj["duration"] = schedule->duration;
+    
+    // Days as array of booleans
+    JsonArray days = obj["days"].to<JsonArray>();
+    for (int8_t bit = 7; bit >= 1; bit--) {
+      days.add((schedule->days & (1 << bit)) != 0);
+    }
+  }
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleScheduleAdd() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["valveId"].is<int>()) {
+    sendJsonError(400, "Missing valveId");
+    return;
+  }
+
+  uint8_t valveId = doc["valveId"];
+  uint8_t fromHour = doc["fromHour"] | 0;
+  uint8_t fromMinute = doc["fromMinute"] | 0;
+  uint16_t duration = doc["duration"] | 300;  // Default 5 minutes
+  
+  // Validate
+  if (!Valves.isValidId(valveId)) {
+    sendJsonError(400, "Invalid valveId");
+    return;
+  }
+
+  if (!SchedulerClass::isValid(fromHour, fromMinute, duration)) {
+    sendJsonError(400, "Invalid schedule parameters");
+    return;
+  }
+
+  // Parse days array
+  uint8_t days = 0;
+  if (doc["days"].is<JsonArray>()) {
+    JsonArray daysArr = doc["days"];
+    for (uint8_t i = 0; i < 7 && i < daysArr.size(); i++) {
+      if (daysArr[i].as<bool>()) {
+        days |= (1 << (7 - i));
+      }
+    }
+  }
+
+  int8_t slot = Scheduler.add(valveId, fromHour, fromMinute, duration, days);
+  
+  if (slot < 0) {
+    sendJsonError(400, "No empty schedule slots available");
+    return;
+  }
+  
+  JsonDocument response;
+  response["message"] = "ok";
+  response["scheduleId"] = slot;
+  
+  String output;
+  serializeJson(response, output);
+  server.send(200, "application/json", output);
+}
+
+void handleScheduleUpdate() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["scheduleId"].is<int>()) {
+    sendJsonError(400, "Missing scheduleId");
+    return;
+  }
+
+  uint8_t scheduleId = doc["scheduleId"];
+
+  if (scheduleId >= Scheduler.maxSchedules()) {
+    sendJsonError(400, "Invalid scheduleId");
+    return;
+  }
+
+  // Get existing schedule
+  Schedule* existing = Scheduler.get(scheduleId);
+  if (!existing || existing->isEmpty()) {
+    sendJsonError(404, "Schedule not found");
+    return;
+  }
+
+  // Use existing values as defaults
+  uint8_t valveId = doc["valveId"] | existing->valveId;
+  uint8_t fromHour = doc["fromHour"] | existing->fromHour;
+  uint8_t fromMinute = doc["fromMinute"] | existing->fromMinute;
+  uint16_t duration = doc["duration"] | existing->duration;
+  
+  // Validate
+  if (!Valves.isValidId(valveId)) {
+    sendJsonError(400, "Invalid valveId");
+    return;
+  }
+
+  if (!SchedulerClass::isValid(fromHour, fromMinute, duration)) {
+    sendJsonError(400, "Invalid schedule parameters");
+    return;
+  }
+
+  // Parse days array or keep existing
+  uint8_t days = existing->days;
+  if (doc["days"].is<JsonArray>()) {
+    days = 0;
+    JsonArray daysArr = doc["days"];
+    for (uint8_t i = 0; i < 7 && i < daysArr.size(); i++) {
+      if (daysArr[i].as<bool>()) {
+        days |= (1 << (7 - i));
+      }
+    }
+  }
+
+  if (!Scheduler.update(scheduleId, valveId, fromHour, fromMinute, duration, days)) {
+    sendJsonError(500, "Failed to update schedule");
+    return;
+  }
+  
+  sendJsonResponse(200, "ok");
+}
+
+void handleScheduleDelete() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["scheduleId"].is<int>()) {
+    sendJsonError(400, "Missing scheduleId");
+    return;
+  }
+
+  uint8_t scheduleId = doc["scheduleId"];
+
+  if (!Scheduler.remove(scheduleId)) {
+    sendJsonError(400, "Invalid scheduleId");
+    return;
+  }
+  
+  sendJsonResponse(200, "ok");
+}
+
+void handleScheduleDeleteAll() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+  
+  Scheduler.removeAll();
+  sendJsonResponse(200, "ok");
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+void sendJsonResponse(int code, const char* message) {
+  JsonDocument doc;
+  doc["message"] = message;
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(code, "application/json", output);
+}
+
+void sendJsonError(int code, const char* error) {
+  JsonDocument doc;
+  doc["error"] = error;
+  
+  String output;
+  serializeJson(doc, output);
+  server.send(code, "application/json", output);
+}
+
+void sendCorsHeaders() {
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Max-Age", "600");
+}
+
+bool parseJsonBody(JsonDocument& doc) {
+  if (!server.hasArg("plain")) {
+    DEBUG_API("No request body\n");
+    return false;
+  }
+  
   DeserializationError error = deserializeJson(doc, server.arg("plain"));
+  if (error) {
+    DEBUG_API("JSON parse error: %s\n", error.c_str());
+    return false;
+  }
+  
+  return true;
+}
 
-
-
-  uint8_t scheduleId = 0;
-  uint8_t valveId = doc["valveId"];
-  uint8_t fromHour = doc["fromHour"];
-  uint8_t fromMinute = doc["fromMinute"];
-  uint8_t duration = doc["duration"];
-
-  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
-  for (int i = 0; i < arrLen; ++i)
-  {
-    if (schedules[i].valveId == -1) {
-      scheduleId = i;
-      break;
+bool checkApiAuth() {
+  #if API_AUTH_ENABLED
+    if (!server.hasHeader(API_KEY_HEADER)) {
+      sendCorsHeaders();
+      sendJsonError(401, "Missing API key");
+      return false;
     }
-  }
 
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute, duration, doc["days"]);
+    if (server.header(API_KEY_HEADER) != API_KEY) {
+      sendCorsHeaders();
+      sendJsonError(403, "Invalid API key");
+      return false;
+    }
+  #endif
 
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
+  return true;
 }
 
-void onScheduleUpdateRoute() {
-  setCors();
-
-  DynamicJsonDocument doc(512);
-  Serial.println(server.arg("plain"));
-  deserializeJson(doc, server.arg("plain"));
-
-  uint8_t scheduleId = doc["scheduleId"];
-  uint8_t valveId = doc["valveId"];
-  uint8_t fromHour = doc["fromHour"];
-  uint8_t fromMinute = doc["fromMinute"];
-  uint8_t duration = doc["duration"];
-
-  commitScheduleItem(scheduleId, valveId, fromHour, fromMinute, duration, doc["days"]);
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-void commitScheduleItem(int scheduleId, int valveId, int fromHour, int fromMinute, int duration, JsonArray days) {
-  schedules[scheduleId].valveId = valveId;
-  schedules[scheduleId].fromHour = fromHour;
-  schedules[scheduleId].fromMinute = fromMinute;
-  schedules[scheduleId].duration = duration;
-
-  bitWrite(schedules[scheduleId].days, 7, days[0]);
-  bitWrite(schedules[scheduleId].days, 6, days[1]);
-  bitWrite(schedules[scheduleId].days, 5, days[2]);
-  bitWrite(schedules[scheduleId].days, 4, days[3]);
-  bitWrite(schedules[scheduleId].days, 3, days[4]);
-  bitWrite(schedules[scheduleId].days, 2, days[5]);
-  bitWrite(schedules[scheduleId].days, 1, days[6]);
-
-  Serial.println("Saving new schedule item");
-  Serial.println(valveId);
-  Serial.println(fromHour);
-  Serial.println(fromMinute);
-  Serial.println(duration);
-
-  Serial.println("Days");
-  for (int i = 0; i < 7; i++) {
-    Serial.println(String(i) + "  " + String(days[i]));
-  }
-  Serial.println("/ Days");
-
-  EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
-  delay(200);
-  EEPROM.commit();
-  delay(200);
-
-  Serial.println("Saved new schedule item");
-}
-
-void onScheduleDeleteRoute() {
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-
-  setCors();
-  uint8_t scheduleId = doc["scheduleId"];
-  schedules[scheduleId].valveId = -1;
-  schedules[scheduleId].fromHour = 0;
-  schedules[scheduleId].fromMinute = 0;
-  schedules[scheduleId].duration = 0;
-
-  EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
-  delay(200);
-  EEPROM.commit();
-  delay(200);
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-void onScheduleDeleteAllRoute() {
-  int arrLen = sizeof(schedules) / sizeof(valveSchedule);
-  for (int i = 0; i < arrLen; ++i)
-  {
-    schedules[i].valveId = -1;
-  }
-
-  EEPROM.put(SCHEDULE_EEPROM_ADRESS, schedules);
-  delay(200);
-  EEPROM.commit();
-  delay(200);
-
-  server.send(200, "application/json", "{\"message\": \"ok\"}");
-}
-
-void onSystemPingRoute()
-{
-  server.send(200, "text/plain", "{\"message\": \"ok\"}");
-}
-
-void onRouteNotFound()
-{
-  server.send(404, "text/plain", "404 :(");
+SystemStatus getSystemStatus() {
+  SystemStatus status;
+  status.uptime = millis();
+  status.freeHeap = ESP.getFreeHeap();
+  status.wifiConnected = (WiFi.status() == WL_CONNECTED);
+  status.wifiRssi = WiFi.RSSI();
+  status.apMode = apMode;
+  status.ntpSynced = ntpSynced;
+  status.currentTime = time(nullptr);
+  status.activeValves = Valves.getActiveCount();
+  status.activeSchedules = Scheduler.getActiveCount();
+  return status;
 }
