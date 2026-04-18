@@ -96,44 +96,49 @@ constexpr unsigned long NTP_SYNC_INTERVAL_MS = 3600000UL;
 constexpr uint8_t NUM_VALVES = 4;
 
 // Valve GPIO pins (active LOW - relay typically pulls LOW to activate)
-// Using D1, D5, D6, D7 on NodeMCU/Wemos D1 Mini (D4 avoided - shared with onboard LED)
-constexpr uint8_t VALVE_PINS[NUM_VALVES] = {D1, D5, D6, D7};
+// Using GPIO 25, 26, 27, 32 — safe on all ESP32 DevKit variants.
+// Strapping pins to avoid: 0 (boot mode), 2 (boot/LED), 5, 12, 15.
+// Also avoid 6-11 (SPI flash), 34-39 (input-only, no output driver).
+constexpr uint8_t VALVE_PINS[NUM_VALVES] = {25, 26, 27, 32};
 
 // Valve logic level (true = active HIGH, false = active LOW)
 // Most relay modules are active LOW
 constexpr bool VALVE_ACTIVE_HIGH = false;
 
 // =============================================================================
-// Schedule Configuration
+// Scenario Configuration
 // =============================================================================
 
-// Maximum number of schedules (affects EEPROM usage)
-constexpr uint8_t MAX_SCHEDULES = 32;
+// Maximum number of scenarios
+constexpr uint8_t MAX_SCENARIOS = 16;
 
 // Minimum plausible Unix timestamp (2001-09-09); used to detect valid NTP sync
 constexpr time_t MIN_VALID_UNIX_TIME = 1000000000;
 
-// EEPROM configuration
-constexpr uint16_t EEPROM_SIZE = 4096;
-constexpr uint16_t SCHEDULE_EEPROM_ADDR = 16;  // After header
-
-// Maximum schedule duration in seconds (default: 4 hours)
-constexpr uint16_t MAX_SCHEDULE_DURATION_SEC = 14400;
-
 // Maximum timer duration in seconds (default: 24 hours)
 constexpr uint32_t MAX_TIMER_DURATION_SEC = 86400;
+
+// Maximum scenario action duration in seconds (default: 4 hours)
+constexpr uint16_t MAX_SCENARIO_DURATION_SEC = 14400;
+
+// =============================================================================
+// Sensor Configuration (I2C)
+// =============================================================================
+
+// I2C addresses for sensor boards
+constexpr uint8_t SENSOR_ADDR_TEMP1  = 0x40;
+constexpr uint8_t SENSOR_ADDR_HUM1   = 0x00;  // Not connected yet
+constexpr uint8_t SENSOR_ADDR_SOIL1  = 0x00;  // Not connected yet
+constexpr uint8_t SENSOR_ADDR_WATER1 = 0x00;  // Not connected yet
 
 // =============================================================================
 // Timing Configuration
 // =============================================================================
 
-// How often to check schedules and timers (milliseconds)
-constexpr unsigned long SCHEDULE_CHECK_INTERVAL_MS = 5000;
+// How often to evaluate scenarios and timers (milliseconds)
+constexpr unsigned long SCENARIO_CHECK_INTERVAL_MS = 5000;
 
-// How often to check sensors (milliseconds) - for future use
-constexpr unsigned long SENSOR_CHECK_INTERVAL_MS = 60000;
-
-// Watchdog timeout in milliseconds (8 seconds max on ESP8266)
+// Watchdog timeout in milliseconds
 constexpr unsigned long WATCHDOG_TIMEOUT_MS = 8000;
 
 // =============================================================================
@@ -154,7 +159,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINTF(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
   #define DEBUG_VALVE(fmt, ...) Serial.printf("[VALVE] " fmt, ##__VA_ARGS__)
-  #define DEBUG_SCHEDULE(fmt, ...) Serial.printf("[SCHED] " fmt, ##__VA_ARGS__)
+  #define DEBUG_SCENARIO(fmt, ...) Serial.printf("[SCENARIO] " fmt, ##__VA_ARGS__)
   #define DD_DEBUG_WIFI(fmt, ...) Serial.printf("[WIFI] " fmt, ##__VA_ARGS__)
   #define DEBUG_API(fmt, ...) Serial.printf("[API] " fmt, ##__VA_ARGS__)
 #else
@@ -162,7 +167,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTF(fmt, ...)
   #define DEBUG_VALVE(fmt, ...)
-  #define DEBUG_SCHEDULE(fmt, ...)
+  #define DEBUG_SCENARIO(fmt, ...)
   #define DD_DEBUG_WIFI(fmt, ...)
   #define DEBUG_API(fmt, ...)
 #endif
@@ -171,7 +176,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "3.0.0-rc5"
+#define FIRMWARE_VERSION "4.0.0"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

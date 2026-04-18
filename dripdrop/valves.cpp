@@ -33,8 +33,8 @@ bool ValveController::setState(uint8_t index, bool on, ValveSource source) {
   
   Valve& valve = _valves[index];
   
-  // Check if state is actually changing
-  if (valve.isOn == on && (on == false || valve.source == source)) {
+  // Check if state is actually changing (including source — e.g. SCENARIO→MANUAL matters)
+  if (valve.isOn == on && valve.source == source) {
     return false;  // No change needed
   }
   
@@ -63,7 +63,7 @@ bool ValveController::setState(uint8_t index, bool on, ValveSource source) {
 
 bool ValveController::getState(uint8_t index) const {
   if (!isValidIndex(index)) return false;
-  return readHardware(index);
+  return _valves[index].isOn;  // Use cache; hardware is only written by this firmware
 }
 
 Valve* ValveController::getValve(uint8_t index) {

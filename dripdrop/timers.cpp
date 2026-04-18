@@ -25,7 +25,8 @@ void TimerManager::check(time_t currentTime) {
     
     if (_timers[i].endTime > currentTime) {
       // Timer still active - ensure valve is on
-      if (!valve->isOn || !valve->isTimerControlled()) {
+      // Accept both TIMER and SCENARIO as valid sources (scenario uses timer for auto-shutoff)
+      if (!valve->isOn) {
         Valves.setState(i, true, ValveSource::TIMER);
       }
     } else {
@@ -76,9 +77,9 @@ bool TimerManager::abort(uint8_t valveId) {
   }
   
   _timers[index].endTime = -1;
-  
+
   Valve* valve = Valves.getValve(index);
-  if (valve && valve->isTimerControlled()) {
+  if (valve && !valve->isManuallyControlled()) {
     Valves.setState(index, false, ValveSource::NONE);
   }
   
