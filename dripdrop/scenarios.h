@@ -73,7 +73,7 @@ public:
 
 private:
   // In-memory scenario storage as a single JSON document
-  JsonDocument _doc;
+  mutable JsonDocument _doc;
   uint8_t _count = 0;
   bool _dirty = false;
   unsigned long _dirtyTime = 0;

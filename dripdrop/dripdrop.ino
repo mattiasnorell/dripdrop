@@ -54,7 +54,7 @@ HTTPUpdateServer httpUpdater;
 static unsigned long lastScenarioCheck = 0;
 static unsigned long lastWifiCheck = 0;
 static unsigned long lastNtpSync = 0;
-static std::atomic<bool> ntpSynced{false};
+static std::atomic<bool> ntpSynced{ false };
 static bool apMode = false;
 
 // =============================================================================
@@ -81,17 +81,17 @@ void handleSystemTime();
 void handleSystemTimePost();
 void handleSystemReboot();
 void handleValveList();
-void handleValveState();       // GET  /valves/{id}/state
-void handleValveOn();          // POST /valves/{id}/on
-void handleValveOff();         // POST /valves/{id}/off
-void handleValvesAllOff();     // POST /valves/off
-void handleTimerGet();         // GET  /timers
-void handleTimerPost();        // POST /valves/{id}/timer
-void handleTimerAbort();       // DELETE /valves/{id}/timer
-void handleScenarioList();     // GET  /scenarios
-void handleScenarioAdd();      // POST /scenarios
-void handleScenarioUpdate();   // POST /scenarios/{id}
-void handleScenarioDelete();   // DELETE /scenarios/{id}
+void handleValveState();      // GET  /valves/{id}/state
+void handleValveOn();         // POST /valves/{id}/on
+void handleValveOff();        // POST /valves/{id}/off
+void handleValvesAllOff();    // POST /valves/off
+void handleTimerGet();        // GET  /timers
+void handleTimerPost();       // POST /valves/{id}/timer
+void handleTimerAbort();      // DELETE /valves/{id}/timer
+void handleScenarioList();    // GET  /scenarios
+void handleScenarioAdd();     // POST /scenarios
+void handleScenarioUpdate();  // POST /scenarios/{id}
+void handleScenarioDelete();  // DELETE /scenarios/{id}
 
 // Utility functions
 void sendJsonResponse(int code, const char* message);
@@ -244,13 +244,19 @@ void setupNtp() {
 
 void setupWatchdog() {
   esp_task_wdt_config_t twdt_config = {
-    .timeout_ms    = WATCHDOG_TIMEOUT_MS,
+    .timeout_ms = WATCHDOG_TIMEOUT_MS,
     .idle_core_mask = 0,
-    .trigger_panic  = true,
+    .trigger_panic = true,
   };
   esp_err_t err = esp_task_wdt_reconfigure(&twdt_config);
   if (err != ESP_OK) {
     DEBUG_PRINTF("Watchdog config failed: %d\n", err);
+    return;
+  }
+
+  err = esp_task_wdt_add(NULL);
+  if (err != ESP_OK) {
+    DEBUG_PRINTF("Watchdog task add failed: %d\n", err);
   } else {
     DEBUG_PRINTF("Watchdog enabled (%lus timeout)\n", WATCHDOG_TIMEOUT_MS / 1000);
   }
@@ -274,28 +280,28 @@ void setupRoutes() {
 
   // System
   server.on("/system/status", HTTP_GET, handleSystemStatus);
-  server.on("/system/ip",     HTTP_GET, handleSystemIp);
-  server.on("/system/ping",   HTTP_GET, handleSystemPing);
-  server.on("/system/time",   HTTP_GET, handleSystemTime);
-  server.on("/system/time",   HTTP_POST, handleSystemTimePost);
+  server.on("/system/ip", HTTP_GET, handleSystemIp);
+  server.on("/system/ping", HTTP_GET, handleSystemPing);
+  server.on("/system/time", HTTP_GET, handleSystemTime);
+  server.on("/system/time", HTTP_POST, handleSystemTimePost);
   server.on("/system/reboot", HTTP_POST, handleSystemReboot);
 
   // Valves
-  server.on("/valves",     HTTP_GET,  handleValveList);
+  server.on("/valves", HTTP_GET, handleValveList);
   server.on("/valves/off", HTTP_POST, handleValvesAllOff);
-  server.on(UriBraces("/valves/{}/state"), HTTP_GET,  handleValveState);
-  server.on(UriBraces("/valves/{}/on"),    HTTP_POST, handleValveOn);
-  server.on(UriBraces("/valves/{}/off"),   HTTP_POST, handleValveOff);
+  server.on(UriBraces("/valves/{}/state"), HTTP_GET, handleValveState);
+  server.on(UriBraces("/valves/{}/on"), HTTP_POST, handleValveOn);
+  server.on(UriBraces("/valves/{}/off"), HTTP_POST, handleValveOff);
 
   // Timers
   server.on("/timers", HTTP_GET, handleTimerGet);
-  server.on(UriBraces("/valves/{}/timer"), HTTP_POST,   handleTimerPost);
+  server.on(UriBraces("/valves/{}/timer"), HTTP_POST, handleTimerPost);
   server.on(UriBraces("/valves/{}/timer"), HTTP_DELETE, handleTimerAbort);
 
   // Scenarios
-  server.on("/scenarios", HTTP_GET,  handleScenarioList);
+  server.on("/scenarios", HTTP_GET, handleScenarioList);
   server.on("/scenarios", HTTP_POST, handleScenarioAdd);
-  server.on(UriBraces("/scenarios/{}"), HTTP_POST,   handleScenarioUpdate);
+  server.on(UriBraces("/scenarios/{}"), HTTP_POST, handleScenarioUpdate);
   server.on(UriBraces("/scenarios/{}"), HTTP_DELETE, handleScenarioDelete);
 
   // 404 / OPTIONS preflight catch-all
@@ -334,9 +340,7 @@ void handleSystemStatus() {
   JsonDocument doc;
   doc["firmware"] = FIRMWARE_VERSION;
   doc["uptime"] = status.uptime;
-  doc["uptimeFormatted"] = String(status.uptime / 86400000) + "d " +
-                           String((status.uptime / 3600000) % 24) + "h " +
-                           String((status.uptime / 60000) % 60) + "m";
+  doc["uptimeFormatted"] = String(status.uptime / 86400000) + "d " + String((status.uptime / 3600000) % 24) + "h " + String((status.uptime / 60000) % 60) + "m";
   doc["freeHeap"] = status.freeHeap;
   doc["wifiConnected"] = status.wifiConnected;
   doc["wifiRssi"] = status.wifiRssi;
@@ -368,7 +372,7 @@ void handleSystemTime() {
   JsonDocument doc;
   time_t now = time(nullptr);
   doc["unixTime"] = now;
-  doc["synced"] = ntpSynced;
+  doc["synced"] = ntpSynced.load();
 
   if (ntpSynced) {
     struct tm timeInfo;
@@ -744,19 +748,19 @@ bool parseJsonBody(JsonDocument& doc) {
 }
 
 bool checkApiAuth() {
-  #if API_AUTH_ENABLED
-    if (!server.hasHeader(API_KEY_HEADER)) {
-      sendCorsHeaders();
-      sendJsonError(401, "Missing API key");
-      return false;
-    }
+#if API_AUTH_ENABLED
+  if (!server.hasHeader(API_KEY_HEADER)) {
+    sendCorsHeaders();
+    sendJsonError(401, "Missing API key");
+    return false;
+  }
 
-    if (server.header(API_KEY_HEADER) != API_KEY) {
-      sendCorsHeaders();
-      sendJsonError(403, "Invalid API key");
-      return false;
-    }
-  #endif
+  if (server.header(API_KEY_HEADER) != API_KEY) {
+    sendCorsHeaders();
+    sendJsonError(403, "Invalid API key");
+    return false;
+  }
+#endif
 
   return true;
 }

@@ -18,11 +18,11 @@
 
 // Primary WiFi network credentials
 #ifndef WIFI_SSID
-  #define WIFI_SSID "xxxxxxxxx"
+  #define WIFI_SSID "WajFaj"
 #endif
 
 #ifndef WIFI_PASSWORD
-  #define WIFI_PASSWORD "********"
+  #define WIFI_PASSWORD "7357_m4n0"
 #endif
 
 // Access Point (fallback) credentials
