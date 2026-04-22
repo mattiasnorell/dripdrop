@@ -1,7 +1,7 @@
 /**
  * SensorManager stub for native unit testing.
  */
-#include "../../sensors.h"
+#include "../../src/sensors.h"
 
 SensorManager Sensors;
 

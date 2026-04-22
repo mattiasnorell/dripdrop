@@ -38,6 +38,8 @@
 #include "timers.h"
 #include "sensors.h"
 #include "scenarios.h"
+#include "logger.h"
+#include "AppHtml.h"
 #include <LittleFS.h>
 
 // =============================================================================
@@ -56,6 +58,7 @@ static unsigned long lastWifiCheck = 0;
 static unsigned long lastNtpSync = 0;
 static std::atomic<bool> ntpSynced{ false };
 static bool apMode = false;
+static String deviceName = "dripdrop";
 
 // =============================================================================
 // Forward Declarations
@@ -67,6 +70,10 @@ void setupMdns();
 void setupNtp();
 void setupWatchdog();
 void setupRoutes();
+void loadSettings();
+void saveSettings();
+void handleSystemNameGet();   // GET  /system/name
+void handleSystemNamePost();  // POST /system/name
 
 // Loop helpers
 void checkWiFiConnection();
@@ -92,6 +99,8 @@ void handleScenarioList();    // GET  /scenarios
 void handleScenarioAdd();     // POST /scenarios
 void handleScenarioUpdate();  // POST /scenarios/{id}
 void handleScenarioDelete();  // DELETE /scenarios/{id}
+void handleSystemLogsGet();   // GET  /system/logs
+void handleSystemLogsPost();  // POST /system/logs
 
 // Utility functions
 void sendJsonResponse(int code, const char* message);
@@ -123,6 +132,7 @@ void setup() {
   Timers.begin();
   Sensors.begin();
   Scenarios.begin();
+  loadSettings();
 
   setupWatchdog();
   setupWiFi();
@@ -142,6 +152,8 @@ void setup() {
                       : WiFi.localIP().toString().c_str());
   DEBUG_PRINTF("Free heap: %lu bytes\n", ESP.getFreeHeap());
   DEBUG_PRINTLN(F("========================================\n"));
+
+  Logger.Info(LogEvent::SYSTEM_BOOT);
 }
 
 // =============================================================================
@@ -173,6 +185,7 @@ void loop() {
       ntpSynced = true;
       lastNtpSync = now;
       DEBUG_PRINTLN(F("NTP synchronized"));
+      Logger.Info(LogEvent::SYSTEM_NTP_SYNCED);
     }
   } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
     lastNtpSync = now;
@@ -220,6 +233,7 @@ void setupWiFi() {
     DD_DEBUG_WIFI("RSSI: %d dBm\n", WiFi.RSSI());
   } else {
     DD_DEBUG_WIFI("Connection failed, starting AP mode\n");
+    Logger.Info(LogEvent::SYSTEM_WIFI_FAILED);
     apMode = true;
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -243,12 +257,7 @@ void setupNtp() {
 }
 
 void setupWatchdog() {
-  esp_task_wdt_config_t twdt_config = {
-    .timeout_ms = WATCHDOG_TIMEOUT_MS,
-    .idle_core_mask = 0,
-    .trigger_panic = true,
-  };
-  esp_err_t err = esp_task_wdt_reconfigure(&twdt_config);
+  esp_err_t err = esp_task_wdt_init(WATCHDOG_TIMEOUT_MS / 1000, true);
   if (err != ESP_OK) {
     DEBUG_PRINTF("Watchdog config failed: %d\n", err);
     return;
@@ -271,6 +280,33 @@ void checkWiFiConnection() {
   }
 }
 
+void loadSettings() {
+  File file = LittleFS.open(SETTINGS_FILE, "r");
+  if (!file) return;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, file) == DeserializationError::Ok) {
+    if (doc["logUrl"].is<const char*>())    Logger.setUrl(doc["logUrl"].as<const char*>());
+    if (doc["logToken"].is<const char*>())  Logger.setToken(doc["logToken"].as<const char*>());
+    if (doc["name"].is<const char*>())      deviceName = doc["name"].as<const char*>();
+  }
+  Logger.setDevice(deviceName.c_str());
+  file.close();
+  DEBUG_PRINTF("Settings loaded (name=%s, logUrl=%s)\n", deviceName.c_str(), Logger.getUrl().c_str());
+}
+
+void saveSettings() {
+  File file = LittleFS.open(SETTINGS_FILE, "w");
+  if (!file) return;
+
+  JsonDocument doc;
+  doc["name"]     = deviceName;
+  doc["logUrl"]   = Logger.getUrl();
+  doc["logToken"] = Logger.getToken();
+  serializeJson(doc, file);
+  file.close();
+}
+
 // =============================================================================
 // HTTP Route Setup
 // =============================================================================
@@ -285,6 +321,10 @@ void setupRoutes() {
   server.on("/system/time", HTTP_GET, handleSystemTime);
   server.on("/system/time", HTTP_POST, handleSystemTimePost);
   server.on("/system/reboot", HTTP_POST, handleSystemReboot);
+  server.on("/system/logs", HTTP_GET, handleSystemLogsGet);
+  server.on("/system/logs", HTTP_POST, handleSystemLogsPost);
+  server.on("/system/name", HTTP_GET, handleSystemNameGet);
+  server.on("/system/name", HTTP_POST, handleSystemNamePost);
 
   // Valves
   server.on("/valves", HTTP_GET, handleValveList);
@@ -313,13 +353,7 @@ void setupRoutes() {
 // =============================================================================
 
 void handleRoot() {
-  static const char html[] = R"(<!DOCTYPE html>
-<html><head><title>DripDrop</title><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{font-family:system-ui;max-width:600px;margin:40px auto;padding:20px;background:#f5f5f5}
-h1{color:#2d5a27}a{color:#4a7c43}</style></head>
-<body><h1>DripDrop Irrigation</h1><p>API is running. <a href="/system/status">System Status</a></p></body></html>)";
-
-  server.send(200, "text/html", html);
+  server.send_P(200, "text/html", APP_HTML);
 }
 
 void handleNotFound() {
@@ -426,8 +460,72 @@ void handleSystemReboot() {
   if (!checkApiAuth()) return;
 
   sendJsonResponse(200, "Rebooting...");
+  Logger.Info(LogEvent::SYSTEM_REBOOT);
   delay(500);
   ESP.restart();
+}
+
+void handleSystemLogsGet() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  doc["logUrl"]   = Logger.getUrl();
+  doc["logToken"] = Logger.getToken();
+
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleSystemLogsPost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (doc["logUrl"].is<const char*>())   Logger.setUrl(doc["logUrl"].as<const char*>());
+  if (doc["logToken"].is<const char*>()) Logger.setToken(doc["logToken"].as<const char*>());
+
+  saveSettings();
+  sendJsonResponse(200, "ok");
+}
+
+void handleSystemNameGet() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  doc["name"] = deviceName;
+
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleSystemNamePost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["name"].is<const char*>() || strlen(doc["name"].as<const char*>()) == 0) {
+    sendJsonError(400, "name (string) is required");
+    return;
+  }
+
+  deviceName = doc["name"].as<const char*>();
+  Logger.setDevice(deviceName.c_str());
+  saveSettings();
+  sendJsonResponse(200, "ok");
 }
 
 // =============================================================================
@@ -506,6 +604,9 @@ void handleValveOn() {
   }
 
   Valves.setState(index, true, ValveSource::MANUAL);
+  char d[32];
+  snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
+  Logger.Info(LogEvent::VALVE_ON, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -523,6 +624,9 @@ void handleValveOff() {
 
   Timers.abort(valveId);
   Valves.setState(index, false, ValveSource::NONE);
+  char d[32];
+  snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
+  Logger.Info(LogEvent::VALVE_OFF, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -532,6 +636,7 @@ void handleValvesAllOff() {
 
   Timers.abortAll();
   Valves.allOff();
+  Logger.Info(LogEvent::VALVES_ALL_OFF);
   sendJsonResponse(200, "ok");
 }
 
@@ -655,6 +760,10 @@ void handleScenarioAdd() {
     return;
   }
 
+  char d[96];
+  snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", newId.c_str(), input["name"].as<const char*>());
+  Logger.Info(LogEvent::SCENARIO_ADD, d);
+
   JsonDocument response;
   response["message"] = "ok";
   response["id"] = newId;
@@ -685,6 +794,9 @@ void handleScenarioUpdate() {
     return;
   }
 
+  char d[96];
+  snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", id.c_str(), input["name"].as<const char*>());
+  Logger.Info(LogEvent::SCENARIO_UPDATE, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -700,6 +812,9 @@ void handleScenarioDelete() {
     return;
   }
 
+  char d[48];
+  snprintf(d, sizeof(d), "{\"id\":\"%s\"}", id.c_str());
+  Logger.Info(LogEvent::SCENARIO_DELETE, d);
   sendJsonResponse(200, "ok");
 }
 

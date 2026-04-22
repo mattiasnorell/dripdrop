@@ -1,7 +1,7 @@
 /**
  * ValveController stub for native unit testing.
  */
-#include "../../valves.h"
+#include "../../src/valves.h"
 
 ValveController Valves;
 

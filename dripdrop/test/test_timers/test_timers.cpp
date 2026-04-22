@@ -5,15 +5,16 @@
  * override, and query methods (isActive, getRemainingSeconds, get).
  */
 #include <unity.h>
-#include "../../valves.h"
-#include "../../timers.h"
-#include "../../sensors.h"
+#include "../../src/valves.h"
+#include "../../src/timers.h"
+#include "../../src/sensors.h"
 
 // Include stubs (valve stub) and real timer implementation
 #include "../stubs/stubs_common.cpp"
+#include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_sensors.cpp"
-#include "../../timers.cpp"
+#include "../../src/timers.cpp"
 
 // ---------------------------------------------------------------------------
 // setUp / tearDown

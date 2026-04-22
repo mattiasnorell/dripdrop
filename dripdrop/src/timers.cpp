@@ -4,6 +4,7 @@
 
 #include "timers.h"
 #include "valves.h"
+#include "logger.h"
 
 // Global instance
 TimerManager Timers;
@@ -31,9 +32,14 @@ void TimerManager::check(time_t currentTime) {
       }
     } else {
       // Timer expired - turn off valve
-      DEBUG_PRINTF("Timer expired for valve %d\n", _timers[i].valveId);
+      uint8_t valveId = _timers[i].valveId;
+      DEBUG_PRINTF("Timer expired for valve %d\n", valveId);
       _timers[i].endTime = -1;
-      
+
+      char det[32];
+      snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
+      Logger.Info(LogEvent::TIMER_EXPIRE, det);
+
       // Only turn off if not manually controlled
       if (!valve->isManuallyControlled()) {
         Valves.setState(i, false, ValveSource::NONE);
@@ -60,9 +66,13 @@ bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds) {
   // Start the valve immediately
   Valves.setState(index, true, ValveSource::TIMER);
   
-  DEBUG_PRINTF("Timer started for valve %d: %lu seconds (ends at %ld)\n", 
+  DEBUG_PRINTF("Timer started for valve %d: %lu seconds (ends at %ld)\n",
                valveId, durationSeconds, _timers[index].endTime);
-  
+
+  char det[64];
+  snprintf(det, sizeof(det), "{\"valveId\":%d,\"duration\":%lu}", valveId, (unsigned long)durationSeconds);
+  Logger.Info(LogEvent::TIMER_START, det);
+
   return true;
 }
 
@@ -84,7 +94,11 @@ bool TimerManager::abort(uint8_t valveId) {
   }
   
   DEBUG_PRINTF("Timer aborted for valve %d\n", valveId);
-  
+
+  char det[32];
+  snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
+  Logger.Info(LogEvent::TIMER_ABORT, det);
+
   return true;
 }
 

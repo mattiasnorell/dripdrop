@@ -1,8 +1,8 @@
 /**
  * TimerManager stub for native unit testing (used by scenario tests).
  */
-#include "../../timers.h"
-#include "../../valves.h"
+#include "../../src/timers.h"
+#include "../../src/valves.h"
 
 TimerManager Timers;
 

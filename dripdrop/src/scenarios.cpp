@@ -6,6 +6,7 @@
 #include "valves.h"
 #include "timers.h"
 #include "sensors.h"
+#include "logger.h"
 #include <LittleFS.h>
 
 ScenarioManager Scenarios;
@@ -339,6 +340,11 @@ void ScenarioManager::check(time_t currentTime) {
 
       JsonArray actions = scenario["actions"];
       executeActions(actions, currentTime);
+
+      char det[96];
+      snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
+               idStr, scenario["name"].as<const char*>());
+      Logger.Info(LogEvent::SCENARIO_FIRE, det);
 
       rs->lastRun = currentTime;
       rs->fired = true;

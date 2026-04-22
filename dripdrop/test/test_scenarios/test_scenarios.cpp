@@ -6,17 +6,18 @@
  */
 #include <unity.h>
 #include <ArduinoJson.h>
-#include "../../valves.h"
-#include "../../timers.h"
-#include "../../sensors.h"
-#include "../../scenarios.h"
+#include "../../src/valves.h"
+#include "../../src/timers.h"
+#include "../../src/sensors.h"
+#include "../../src/scenarios.h"
 
 // Include stubs and implementation directly (native test, no separate compilation)
 #include "../stubs/stubs_common.cpp"
+#include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_timers.cpp"
 #include "../stubs/stubs_sensors.cpp"
-#include "../../scenarios.cpp"
+#include "../../src/scenarios.cpp"
 
 // From stubs.cpp
 extern void stub_setSensorReading(const char* sensorId, int16_t value);
