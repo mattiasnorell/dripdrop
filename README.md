@@ -89,6 +89,45 @@ Monitor serial output:
 pio device monitor -e esp32dev
 ```
 
+### Flashing without PlatformIO
+
+To flash a pre-built binary using only `esptool.py`:
+
+**Step 1 — Produce a merged binary** (if you have the source and PlatformIO installed):
+```sh
+# Build firmware and filesystem
+pio run -e esp32dev
+pio run -e esp32dev -t buildfs
+
+# Merge into a single binary flashable at offset 0x0
+python3 ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --chip esp32 merge_bin -o dripdrop-merged.bin \
+  --flash_mode dio --flash_freq 40m --flash_size 4MB \
+  0x1000   .pio/build/esp32dev/bootloader.bin \
+  0x8000   .pio/build/esp32dev/partitions.bin \
+  0xe000   ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+  0x10000  .pio/build/esp32dev/firmware.bin \
+  0x290000 .pio/build/esp32dev/littlefs.bin
+```
+
+**Step 2 — Flash the merged binary:**
+```sh
+esptool.py --chip esp32 -p /dev/ttyUSB0 -b 921600 write_flash 0x0 dripdrop-merged.bin
+```
+Replace `/dev/ttyUSB0` with your port (macOS: `/dev/cu.usbserial-*`).
+
+The merged binary can also be flashed via the [ESP Web Flasher](https://espressif.github.io/esptool-js/) in a browser — no install required.
+
+**Flash offsets** (for flashing individual files separately):
+
+| File | Offset |
+|------|--------|
+| `bootloader.bin` | `0x1000` |
+| `partitions.bin` | `0x8000` |
+| `boot_app0.bin` | `0xe000` |
+| `firmware.bin` | `0x10000` |
+| `littlefs.bin` | `0x290000` |
+
 ### Run Unit Tests (no hardware needed)
 
 ```
