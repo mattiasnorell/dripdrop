@@ -416,13 +416,13 @@ void ScenarioManager::executeActions(const JsonArray& actions, time_t now) {
     }
 
     if (strcmp(state, "on") == 0) {
-      int duration = action["duration"];  // minutes
-      uint32_t durationSec = (uint32_t)duration * 60;
-      if (durationSec > MAX_SCENARIO_DURATION_SEC) {
-        durationSec = MAX_SCENARIO_DURATION_SEC;
+      int duration = action["duration"];  // in seconds
+      
+      if (duration > MAX_SCENARIO_DURATION_SEC) {
+        duration = MAX_SCENARIO_DURATION_SEC;
       }
       // Use the timer system for automatic shutoff, then correct the source
-      Timers.start(valveId, durationSec);
+      Timers.start(valveId, duration);
       Valves.setState(index, true, ValveSource::SCENARIO);
       DEBUG_SCENARIO("Valve %d ON for %d min\n", valveId, duration);
     } else {
