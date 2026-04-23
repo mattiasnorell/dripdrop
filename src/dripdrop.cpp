@@ -185,7 +185,10 @@ void loop() {
       ntpSynced = true;
       lastNtpSync = now;
       DEBUG_PRINTLN(F("NTP synchronized"));
-      Logger.Info(LogEvent::SYSTEM_NTP_SYNCED);
+
+      char d[32];
+      snprintf(d, sizeof(d), "{\"currentTime\":%d}", currentTime);
+      Logger.Info(LogEvent::SYSTEM_NTP_SYNCED, d);
     }
   } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
     lastNtpSync = now;

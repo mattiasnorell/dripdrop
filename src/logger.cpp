@@ -15,7 +15,7 @@ void EventLogger::log(const char* level, const char* event, const char* details)
 
   JsonDocument doc;
   doc["app"]    = EVENT_LOG_APP_ID;
-  doc["device"] = _device;
+  doc["module"] = _device;
   doc["level"]  = level;
   doc["event"]  = event;
 

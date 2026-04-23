@@ -34,18 +34,18 @@ class EventLogger
 public:
   EventLogger() : _device(EVENT_LOG_DEVICE_ID) {}
 
-  void setUrl(const char *url) { _url = url; }
-  void setToken(const char *token) { _token = token; }
+  void setUrl(const char *url)       { _url = url; }
+  void setToken(const char *token)   { _token = token; }
   void setDevice(const char *device) { _device = (device && strlen(device) > 0) ? device : EVENT_LOG_DEVICE_ID; }
-  const String &getUrl() const { return _url; }
-  const String &getToken() const { return _token; }
-  const String &getDevice() const { return _device; }
+  const String &getUrl() const       { return _url; }
+  const String &getToken() const     { return _token; }
+  const String &getDevice() const    { return _device; }
 
   // Best-effort send. Fails silently if WiFi is down or URL is empty.
   // details: optional JSON object string e.g. "{\"valveId\":1}" or nullptr
-  void Info(const char *event, const char *details = nullptr) { log("info", event, details); }
+  void Info(const char *event, const char *details = nullptr)    { log("info",    event, details); }
   void Warning(const char *event, const char *details = nullptr) { log("warning", event, details); }
-  void Error(const char *event, const char *details = nullptr) { log("err", event, details); }
+  void Error(const char *event, const char *details = nullptr)   { log("err",   event, details); }
 
 private:
   void log(const char *level, const char *event, const char *details);
