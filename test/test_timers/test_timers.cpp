@@ -7,13 +7,11 @@
 #include <unity.h>
 #include "../../src/valves.h"
 #include "../../src/timers.h"
-#include "../../src/sensors.h"
 
 // Include stubs (valve stub) and real timer implementation
 #include "../stubs/stubs_common.cpp"
 #include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
-#include "../stubs/stubs_sensors.cpp"
 #include "../../src/timers.cpp"
 
 // ---------------------------------------------------------------------------

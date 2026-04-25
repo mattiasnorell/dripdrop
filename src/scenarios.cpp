@@ -5,7 +5,7 @@
 #include "scenarios.h"
 #include "valves.h"
 #include "timers.h"
-#include "sensors.h"
+#include "modules.h"
 #include "logger.h"
 #include <LittleFS.h>
 
@@ -122,7 +122,7 @@ const char* ScenarioManager::validate(const JsonObject& input) const {
       if (!op || (strcmp(op, "gt") != 0 && strcmp(op, "lt") != 0 && strcmp(op, "eq") != 0)) {
         return "sensorValue condition requires 'operator' (gt, lt, eq)";
       }
-      if (!cond["value"].is<int>()) {
+      if (!cond["value"].is<float>()) {
         return "sensorValue condition requires 'value'";
       }
     } else {
@@ -373,12 +373,13 @@ bool ScenarioManager::evaluateConditions(const JsonArray& conditions, const stru
     } else if (strcmp(type, "sensorValue") == 0) {
       const char* sensorId = cond["sensorId"];
       const char* op = cond["operator"];
-      int threshold = cond["value"];
+      float threshold = cond["value"].as<float>();
 
-      int16_t reading = Sensors.read(sensorId);
-      if (reading == SENSOR_READ_ERROR) {
-        return false;  // Sensor unavailable — don't fire
-      }
+      uint8_t addr = Modules.addrForUid(sensorId);
+      if (addr == 0) return false;
+      SensorResponse resp;
+      if (!Modules.readModule(addr, resp)) return false;
+      float reading = resp.value;
 
       if (strcmp(op, "gt") == 0) {
         if (!(reading > threshold)) return false;

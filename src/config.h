@@ -112,6 +112,9 @@ constexpr bool VALVE_ACTIVE_HIGH = false;
 // Maximum number of scenarios
 constexpr uint8_t MAX_SCENARIOS = 16;
 
+// Maximum number of I²C sensor modules
+constexpr uint8_t MAX_MODULES = 8;
+
 // Minimum plausible Unix timestamp (2001-09-09); used to detect valid NTP sync
 constexpr time_t MIN_VALID_UNIX_TIME = 1000000000;
 
@@ -176,7 +179,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.0.0"
+#define FIRMWARE_VERSION "4.0.6"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

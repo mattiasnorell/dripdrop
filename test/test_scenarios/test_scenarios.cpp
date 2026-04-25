@@ -8,7 +8,6 @@
 #include <ArduinoJson.h>
 #include "../../src/valves.h"
 #include "../../src/timers.h"
-#include "../../src/sensors.h"
 #include "../../src/scenarios.h"
 
 // Include stubs and implementation directly (native test, no separate compilation)
@@ -16,12 +15,11 @@
 #include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_timers.cpp"
-#include "../stubs/stubs_sensors.cpp"
+#include "../stubs/stubs_modules.cpp"
 #include "../../src/scenarios.cpp"
 
-// From stubs.cpp
-extern void stub_setSensorReading(const char* sensorId, int16_t value);
-extern void stub_resetSensorReadings();
+extern void stub_setModuleReading(const char* uid, float value);
+extern void stub_resetModuleReadings();
 
 // Shared scenario manager instance (extern from scenarios.cpp)
 extern ScenarioManager Scenarios;
@@ -46,7 +44,7 @@ void setUp(void) {
   // Re-initialize (load() will find no file via stub, starts empty)
   Scenarios.begin();
   Valves.begin();
-  stub_resetSensorReadings();
+  stub_resetModuleReadings();
 }
 
 void tearDown(void) {
@@ -565,7 +563,7 @@ void test_eval_sensor_gt_passes(void) {
 
   addScenarioWithConditions(doc);
 
-  stub_setSensorReading("temp1", 30);  // 30 > 25
+  stub_setModuleReading("temp1", 30.0f);  // 30 > 25
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -587,7 +585,7 @@ void test_eval_sensor_gt_fails(void) {
 
   addScenarioWithConditions(doc);
 
-  stub_setSensorReading("temp1", 20);  // 20 !> 25
+  stub_setModuleReading("temp1", 20.0f);  // 20 !> 25
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -609,7 +607,7 @@ void test_eval_sensor_lt_passes(void) {
 
   addScenarioWithConditions(doc);
 
-  stub_setSensorReading("soil1", 15);  // 15 < 30
+  stub_setModuleReading("soil1", 15.0f);  // 15 < 30
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -631,7 +629,7 @@ void test_eval_sensor_eq_passes(void) {
 
   addScenarioWithConditions(doc);
 
-  stub_setSensorReading("temp1", 22);
+  stub_setModuleReading("temp1", 22.0f);
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -653,7 +651,7 @@ void test_eval_sensor_unavailable_returns_false(void) {
 
   addScenarioWithConditions(doc);
 
-  // Don't set any sensor reading — defaults to SENSOR_READ_ERROR
+  // Don't register the module — addrForUid returns 0, condition fails
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -734,7 +732,7 @@ void test_edge_detection_fires_once(void) {
   a["valveId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
-  stub_setSensorReading("temp1", 25);
+  stub_setModuleReading("temp1", 25.0f);
 
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
@@ -768,17 +766,17 @@ void test_edge_detection_resets_when_conditions_change(void) {
   time_t ts = tmToTime(&t);
 
   // Fire once
-  stub_setSensorReading("temp1", 25);
+  stub_setModuleReading("temp1", 25.0f);
   Scenarios.check(ts);
   TEST_ASSERT_TRUE(Valves.getState(0));
 
   // Conditions no longer match
-  stub_setSensorReading("temp1", 15);
+  stub_setModuleReading("temp1", 15.0f);
   Valves.setState(0, false, ValveSource::NONE);
   Scenarios.check(ts);
 
   // Conditions match again — should fire again
-  stub_setSensorReading("temp1", 25);
+  stub_setModuleReading("temp1", 25.0f);
   Scenarios.check(ts);
   TEST_ASSERT_TRUE(Valves.getState(0));
 }
@@ -817,7 +815,7 @@ void test_serialize_includes_lastrun_after_fire(void) {
   String id;
   Scenarios.add(doc.as<JsonObject>(), id);
 
-  stub_setSensorReading("temp1", 10);
+  stub_setModuleReading("temp1", 10.0f);
   struct tm t = makeTime(12, 0, 1);
   time_t ts = tmToTime(&t);
   Scenarios.check(ts);

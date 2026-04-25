@@ -24,7 +24,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <HTTPUpdateServer.h>
+#include <ElegantOTA.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <time.h>
@@ -36,8 +36,8 @@
 #include "types.h"
 #include "valves.h"
 #include "timers.h"
-#include "sensors.h"
 #include "scenarios.h"
+#include "modules.h"
 #include "logger.h"
 #include "AppHtml.h"
 #include <LittleFS.h>
@@ -47,7 +47,6 @@
 // =============================================================================
 
 WebServer server(HTTP_PORT);
-HTTPUpdateServer httpUpdater;
 
 // =============================================================================
 // Global State
@@ -99,6 +98,11 @@ void handleScenarioList();    // GET  /scenarios
 void handleScenarioAdd();     // POST /scenarios
 void handleScenarioUpdate();  // POST /scenarios/{id}
 void handleScenarioDelete();  // DELETE /scenarios/{id}
+void handleModuleList();      // GET  /modules
+void handleModuleScan();      // POST /modules/scan
+void handleModuleRegister();  // POST /modules/{uid}/register
+void handleModuleRemove();    // DELETE /modules/{uid}
+void handleModuleReading();   // GET  /modules/{uid}/reading
 void handleSystemLogsGet();   // GET  /system/logs
 void handleSystemLogsPost();  // POST /system/logs
 
@@ -130,8 +134,8 @@ void setup() {
 
   Valves.begin();
   Timers.begin();
-  Sensors.begin();
   Scenarios.begin();
+  Modules.begin();
   loadSettings();
 
   setupWatchdog();
@@ -140,7 +144,20 @@ void setup() {
   setupNtp();
 
   setupRoutes();
-  httpUpdater.setup(&server);
+  ElegantOTA.begin(&server);
+  ElegantOTA.onStart([]() {
+    esp_task_wdt_delete(NULL);  // remove this task from watchdog during flash
+    DEBUG_PRINTLN(F("[OTA] Update started"));
+  });
+  ElegantOTA.onEnd([](bool success) {
+    if (success) {
+      DEBUG_PRINTLN(F("[OTA] Update complete, rebooting"));
+    } else {
+      esp_task_wdt_add(NULL);   // re-add to watchdog if update failed (no reboot)
+      DEBUG_PRINTLN(F("[OTA] Update failed"));
+    }
+  });
+
   const char* headersToCollect[] = { API_KEY_HEADER };
   server.collectHeaders(headersToCollect, 1);
   server.begin();
@@ -195,6 +212,7 @@ void loop() {
   }
 
   Scenarios.maybeSave(now);
+  ElegantOTA.loop();
   esp_task_wdt_reset();
 }
 
@@ -346,6 +364,14 @@ void setupRoutes() {
   server.on("/scenarios", HTTP_POST, handleScenarioAdd);
   server.on(UriBraces("/scenarios/{}"), HTTP_POST, handleScenarioUpdate);
   server.on(UriBraces("/scenarios/{}"), HTTP_DELETE, handleScenarioDelete);
+
+  // Modules — register /modules/{}/register before /modules/{} so the longer
+  // pattern is tested first by the router
+  server.on("/modules", HTTP_GET, handleModuleList);
+  server.on("/modules/scan", HTTP_POST, handleModuleScan);
+  server.on(UriBraces("/modules/{}/register"), HTTP_POST, handleModuleRegister);
+  server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
+  server.on(UriBraces("/modules/{}/reading"), HTTP_GET, handleModuleReading);
 
   // 404 / OPTIONS preflight catch-all
   server.onNotFound(handleNotFound);
@@ -819,6 +845,82 @@ void handleScenarioDelete() {
   snprintf(d, sizeof(d), "{\"id\":\"%s\"}", id.c_str());
   Logger.Info(LogEvent::SCENARIO_DELETE, d);
   sendJsonResponse(200, "ok");
+}
+
+// =============================================================================
+// HTTP Handlers - Modules
+// =============================================================================
+
+// GET /modules
+void handleModuleList() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String output;
+  Modules.serializeRegistered(output);
+  server.send(200, "application/json", output);
+}
+
+// POST /modules/scan
+void handleModuleScan() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  Modules.scanModules();
+  String output;
+  Modules.serializeScan(output);
+  server.send(200, "application/json", output);
+}
+
+// POST /modules/{uid}/register
+void handleModuleRegister() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String uid = server.pathArg(0);
+  if (!Modules.registerModule(uid.c_str())) {
+    sendJsonError(409, "Already registered or not found in last scan");
+    return;
+  }
+  sendJsonResponse(200, "Registered");
+}
+
+// DELETE /modules/{uid}
+void handleModuleRemove() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String uid = server.pathArg(0);
+  if (!Modules.removeModule(uid.c_str())) {
+    sendJsonError(404, "Not found");
+    return;
+  }
+  sendJsonResponse(200, "Removed");
+}
+
+// GET /modules/{uid}/reading
+void handleModuleReading() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String uid = server.pathArg(0);
+  uint8_t addr = Modules.addrForUid(uid.c_str());
+  if (addr == 0) {
+    sendJsonError(404, "Module not registered");
+    return;
+  }
+
+  SensorResponse resp;
+  if (!Modules.readModule(addr, resp)) {
+    sendJsonError(422, "Sensor read failed");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["value"] = resp.value;
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
 }
 
 // =============================================================================

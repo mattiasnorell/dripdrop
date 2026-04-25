@@ -13,6 +13,9 @@
 
 namespace LogEvent
 {
+  constexpr const char *MODULE_SAVE = "module.save";
+  constexpr const char *MODULE_REMOVED = "module.removed";
+  constexpr const char *MODULE_REGISTRATION = "module.registration";
   constexpr const char *VALVE_ON = "valve.on";
   constexpr const char *VALVE_OFF = "valve.off";
   constexpr const char *VALVES_ALL_OFF = "valves.all_off";
@@ -43,6 +46,7 @@ public:
 
   // Best-effort send. Fails silently if WiFi is down or URL is empty.
   // details: optional JSON object string e.g. "{\"valveId\":1}" or nullptr
+  void Debug(const char *event, const char *details = nullptr)    { log("debug",    event, details); }
   void Info(const char *event, const char *details = nullptr)    { log("info",    event, details); }
   void Warning(const char *event, const char *details = nullptr) { log("warning", event, details); }
   void Error(const char *event, const char *details = nullptr)   { log("err",   event, details); }
