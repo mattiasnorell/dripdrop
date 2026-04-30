@@ -102,6 +102,7 @@ void handleScenarioDelete();  // DELETE /scenarios/{id}
 void handleModuleList();      // GET  /modules
 void handleModuleScan();      // POST /modules/scan
 void handleModuleRegister();  // POST /modules/{uid}/register
+void handleModuleUpdate();    // POST /modules/{uid}
 void handleModuleRemove();    // DELETE /modules/{uid}
 void handleModuleReading();   // GET  /modules/{uid}/reading
 void handleSystemMqttGet();   // GET  /system/mqtt
@@ -380,8 +381,9 @@ void setupRoutes() {
   server.on("/modules", HTTP_GET, handleModuleList);
   server.on("/modules/scan", HTTP_POST, handleModuleScan);
   server.on(UriBraces("/modules/{}/register"), HTTP_POST, handleModuleRegister);
-  server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
   server.on(UriBraces("/modules/{}/reading"), HTTP_GET, handleModuleReading);
+  server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
+  server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
 
   // 404 / OPTIONS preflight catch-all
   server.onNotFound(handleNotFound);
@@ -962,6 +964,30 @@ void handleModuleRemove() {
     return;
   }
   sendJsonResponse(200, "Removed");
+}
+
+// POST /modules/{uid}
+void handleModuleUpdate() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String uid = server.pathArg(0);
+
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (doc["customName"].is<const char*>() || doc["customName"].isNull()) {
+    const char* name = doc["customName"].isNull() ? nullptr : doc["customName"].as<const char*>();
+    if (!Modules.setCustomName(uid.c_str(), name)) {
+      sendJsonError(404, "Module not found");
+      return;
+    }
+  }
+
+  sendJsonResponse(200, "Module updated");
 }
 
 // GET /modules/{uid}/reading

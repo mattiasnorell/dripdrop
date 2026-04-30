@@ -9,7 +9,7 @@
  *   0x02 → Nano responds with a SensorResponse struct
  *
  * Registered modules are persisted to LittleFS as /modules.json.
- * Schema per entry: { "uid", "type", "version", "unit", "addr" }
+ * Schema per entry: { "uid", "type", "version", "unit", "addr", "customName" }
  */
 
 #ifndef DRIPDROP_MODULES_H
@@ -100,6 +100,16 @@ public:
   bool removeModule(const char* uid);
 
   /**
+   * Set a custom name for a registered module and persist to flash.
+   * Pass nullptr or empty string to clear. Returns false if uid is not registered.
+   *
+   * @param uid   UID of the module to name.
+   * @param name  Display name (max 31 chars), or nullptr/empty to clear.
+   * @return true on success; false if the UID is not registered.
+   */
+  bool setCustomName(const char* uid, const char* name);
+
+  /**
    * Send CMD_GET_READING to addr and read a SensorResponse.
    * Returns false without populating out if the I²C transfer fails or
    * the module reports status != 0x00.
@@ -140,6 +150,7 @@ private:
     uint8_t version;
     char    unit[5];
     uint8_t addr;
+    char    customName[32];
   };
 
   struct DiscoveredModule {

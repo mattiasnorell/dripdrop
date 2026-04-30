@@ -105,6 +105,7 @@ bool ModuleManager::registerModule(const char *uid)
   m.unit[sizeof(m.unit) - 1] = '\0';
   m.version = desc.version;
   m.addr = _discovered[discIdx].addr;
+  m.customName[0] = '\0';
 
   _discovered[discIdx].registered = true;
 
@@ -229,9 +230,25 @@ void ModuleManager::serializeRegistered(String &out) const
     obj["version"] = m.version;
     obj["unit"] = m.unit;
     obj["addr"] = m.addr;
+    obj["customName"] = m.customName[0] ? (const char*)m.customName : (const char*)nullptr;
   }
 
   serializeJson(doc, out);
+}
+
+bool ModuleManager::setCustomName(const char* uid, const char* name)
+{
+  uint8_t idx;
+  if (!findRegistered(uid, idx)) return false;
+
+  if (name && name[0] != '\0') {
+    strlcpy(_registered[idx].customName, name, sizeof(_registered[idx].customName));
+  } else {
+    _registered[idx].customName[0] = '\0';
+  }
+
+  save();
+  return true;
 }
 
 // ============================================================================
@@ -307,6 +324,7 @@ void ModuleManager::load()
     m.unit[sizeof(m.unit) - 1] = '\0';
     m.version = version;
     m.addr = addr;
+    strlcpy(m.customName, entry["customName"] | "", sizeof(m.customName));
   }
 
   DEBUG_PRINTF("[MODULE] Loaded %d registered module(s)\n", _registeredCount);
@@ -326,6 +344,7 @@ void ModuleManager::save()
     obj["version"] = m.version;
     obj["unit"] = m.unit;
     obj["addr"] = m.addr;
+    if (m.customName[0] != '\0') obj["customName"] = m.customName;
   }
 
   File f = LittleFS.open(MODULES_FILE, "w");
