@@ -219,23 +219,10 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================
-// Event Logger Configuration
+// Storage
 // =============================================================================
 
-// Application name included in every log payload (identifies the codebase/service)
-#ifndef EVENT_LOG_APP_ID
-  #define EVENT_LOG_APP_ID "dripdrop"
-#endif
-
-// Device instance identifier included in every log payload
-#ifndef EVENT_LOG_DEVICE_ID
-  #define EVENT_LOG_DEVICE_ID "dripdrop"
-#endif
-
-// HTTP timeout in ms — keep short (watchdog = 8000ms)
-constexpr uint16_t EVENT_LOG_TIMEOUT_MS = 2000;
-
-// LittleFS file for persisted settings (log URL, log token)
+// LittleFS file for persisted settings
 constexpr const char* SETTINGS_FILE = "/settings.json";
 
 // LittleFS file for custom valve names

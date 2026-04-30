@@ -10,7 +10,6 @@
 
 // Include stubs (valve stub) and real timer implementation
 #include "../stubs/stubs_common.cpp"
-#include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_mqtt.cpp"
 #include "../../src/timers.cpp"

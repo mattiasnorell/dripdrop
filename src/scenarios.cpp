@@ -6,7 +6,6 @@
 #include "valves.h"
 #include "timers.h"
 #include "modules.h"
-#include "logger.h"
 #include "mqtt.h"
 #include <LittleFS.h>
 
@@ -345,7 +344,7 @@ void ScenarioManager::check(time_t currentTime) {
       char det[96];
       snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
                idStr, scenario["name"].as<const char*>());
-      Logger.Info(LogEvent::SCENARIO_FIRE, det);
+      Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_FIRE, det);
 
       rs->lastRun = currentTime;
       rs->fired = true;

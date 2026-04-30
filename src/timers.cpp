@@ -4,7 +4,6 @@
 
 #include "timers.h"
 #include "valves.h"
-#include "logger.h"
 #include "mqtt.h"
 
 // Global instance
@@ -39,7 +38,7 @@ void TimerManager::check(time_t currentTime) {
 
       char det[32];
       snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
-      Logger.Info(LogEvent::TIMER_EXPIRE, det);
+      Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_EXPIRE, det);
 
       // Only turn off if not manually controlled
       if (!valve->isManuallyControlled()) {
@@ -73,7 +72,7 @@ bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds) {
 
   char det[64];
   snprintf(det, sizeof(det), "{\"valveId\":%d,\"duration\":%lu}", valveId, (unsigned long)durationSeconds);
-  Logger.Info(LogEvent::TIMER_START, det);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_START, det);
 
   return true;
 }
@@ -99,7 +98,7 @@ bool TimerManager::abort(uint8_t valveId) {
 
   char det[32];
   snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
-  Logger.Info(LogEvent::TIMER_ABORT, det);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_ABORT, det);
 
   return true;
 }

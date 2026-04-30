@@ -3,7 +3,7 @@
  */
 
 #include "modules.h"
-#include "logger.h"
+#include "mqtt.h"
 #include <LittleFS.h>
 
 ModuleManager Modules;
@@ -69,7 +69,7 @@ bool ModuleManager::registerModule(const char *uid)
 
     char det[96];
     snprintf(det, sizeof(det), "{\"uid\":\"%s\",\"message\":\"uid=%s not in last scan\"}", uid, uid);
-    Logger.Warning(LogEvent::MODULE_REGISTRATION, det);
+    Mqtt.publishEvent(LogLevel::WARNING,LogEvent::MODULE_REGISTRATION, det);
     return false;
   }
 
@@ -79,7 +79,7 @@ bool ModuleManager::registerModule(const char *uid)
     DEBUG_PRINTF("[MODULE] registerModule: uid=%s already registered\n", uid);
     char det[96];
     snprintf(det, sizeof(det), "{\"uid\":\"%s\",\"message\":\"uid=%s already registered\"}", uid, uid);
-    Logger.Warning(LogEvent::MODULE_REGISTRATION, det);
+    Mqtt.publishEvent(LogLevel::WARNING,LogEvent::MODULE_REGISTRATION, det);
 
     return false;
   }
@@ -90,7 +90,7 @@ bool ModuleManager::registerModule(const char *uid)
 
     char det[96];
     snprintf(det, sizeof(det), "{\"uid\":\"%s\",\"message\":\"registered module list full\"}", uid);
-    Logger.Warning(LogEvent::MODULE_REGISTRATION, det);
+    Mqtt.publishEvent(LogLevel::WARNING,LogEvent::MODULE_REGISTRATION, det);
     return false;
   }
 
@@ -113,7 +113,7 @@ bool ModuleManager::registerModule(const char *uid)
 
   char det[96];
   snprintf(det, sizeof(det), "{\"uid\":\"%s\",\"address\":\"0x%02X\",\"message\":\"Module registered\"}", uid, m.addr);
-  Logger.Info(LogEvent::MODULE_REGISTRATION, det);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::MODULE_REGISTRATION, det);
 
   return true;
 }
@@ -149,7 +149,7 @@ bool ModuleManager::removeModule(const char *uid)
 
   char det[96];
   snprintf(det, sizeof(det), "{\"uid\":\"%s\"}", uid);
-  Logger.Info(LogEvent::MODULE_REMOVED, det);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::MODULE_REMOVED, det);
 
   return true;
 }
@@ -341,7 +341,7 @@ void ModuleManager::save()
 
   String output;
   serializeJson(doc, output);
-  Logger.Info(LogEvent::MODULE_SAVE, output.c_str());
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::MODULE_SAVE, output.c_str());
 }
 
 // ============================================================================

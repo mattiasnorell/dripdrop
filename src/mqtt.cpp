@@ -263,6 +263,28 @@ void MqttManager::disconnect() {
   }
 }
 
+void MqttManager::publishEvent(const char* level, const char* event, const char* details) {
+  if (!_mqttClient.connected()) return;
+
+  JsonDocument doc;
+  doc["app"]    = "dripdrop";
+  doc["module"] = deviceName;
+  doc["level"]  = level;
+  doc["event"]  = event;
+  if (details && strlen(details) > 0) {
+    JsonDocument det;
+    if (deserializeJson(det, details) == DeserializationError::Ok) {
+      doc["details"] = det.as<JsonObject>();
+    }
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+
+  String topic = _topicPrefix + "/event";
+  _mqttClient.publish(topic.c_str(), payload.c_str());
+}
+
 void MqttManager::buildTopicPrefix() {
   _topicPrefix = "dripdrop/" + deviceName;
 }
@@ -282,5 +304,6 @@ void MqttManager::setServer(const char* server, uint16_t port) { _server = serve
 void MqttManager::setCredentials(const char* user, const char* password) { _user = user; _password = password; }
 void MqttManager::setEnabled(bool enabled) { _enabled = enabled; }
 void MqttManager::disconnect() {}
+void MqttManager::publishEvent(const char*, const char*, const char*) {}
 
 #endif // MQTT_ENABLED

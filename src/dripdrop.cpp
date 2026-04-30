@@ -38,7 +38,6 @@
 #include "timers.h"
 #include "scenarios.h"
 #include "modules.h"
-#include "logger.h"
 #include "mqtt.h"
 #include "AppHtml.h"
 #include <LittleFS.h>
@@ -105,8 +104,6 @@ void handleModuleScan();      // POST /modules/scan
 void handleModuleRegister();  // POST /modules/{uid}/register
 void handleModuleRemove();    // DELETE /modules/{uid}
 void handleModuleReading();   // GET  /modules/{uid}/reading
-void handleSystemLogsGet();   // GET  /system/logs
-void handleSystemLogsPost();  // POST /system/logs
 void handleSystemMqttGet();   // GET  /system/mqtt
 void handleSystemMqttPost();  // POST /system/mqtt
 
@@ -175,7 +172,7 @@ void setup() {
   DEBUG_PRINTF("Free heap: %lu bytes\n", ESP.getFreeHeap());
   DEBUG_PRINTLN(F("========================================\n"));
 
-  Logger.Info(LogEvent::SYSTEM_BOOT);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_BOOT);
 }
 
 // =============================================================================
@@ -210,7 +207,7 @@ void loop() {
 
       char d[32];
       snprintf(d, sizeof(d), "{\"currentTime\":%d}", currentTime);
-      Logger.Info(LogEvent::SYSTEM_NTP_SYNCED, d);
+      Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_NTP_SYNCED, d);
     }
   } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
     lastNtpSync = now;
@@ -260,7 +257,7 @@ void setupWiFi() {
     DD_DEBUG_WIFI("RSSI: %d dBm\n", WiFi.RSSI());
   } else {
     DD_DEBUG_WIFI("Connection failed, starting AP mode\n");
-    Logger.Info(LogEvent::SYSTEM_WIFI_FAILED);
+    Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_WIFI_FAILED);
     apMode = true;
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -313,17 +310,14 @@ void loadSettings() {
 
   JsonDocument doc;
   if (deserializeJson(doc, file) == DeserializationError::Ok) {
-    if (doc["logUrl"].is<const char*>())    Logger.setUrl(doc["logUrl"].as<const char*>());
-    if (doc["logToken"].is<const char*>())  Logger.setToken(doc["logToken"].as<const char*>());
     if (doc["name"].is<const char*>())      deviceName = doc["name"].as<const char*>();
 
     if (doc["mqttEnabled"].is<bool>())        Mqtt.setEnabled(doc["mqttEnabled"].as<bool>());
     if (doc["mqttServer"].is<const char*>()) Mqtt.setServer(doc["mqttServer"].as<const char*>(), doc["mqttPort"] | MQTT_PORT);
     if (doc["mqttUser"].is<const char*>())   Mqtt.setCredentials(doc["mqttUser"].as<const char*>(), doc["mqttPassword"] | "");
   }
-  Logger.setDevice(deviceName.c_str());
   file.close();
-  DEBUG_PRINTF("Settings loaded (name=%s, logUrl=%s)\n", deviceName.c_str(), Logger.getUrl().c_str());
+  DEBUG_PRINTF("Settings loaded (name=%s)\n", deviceName.c_str());
 }
 
 void saveSettings() {
@@ -332,8 +326,6 @@ void saveSettings() {
 
   JsonDocument doc;
   doc["name"]     = deviceName;
-  doc["logUrl"]   = Logger.getUrl();
-  doc["logToken"] = Logger.getToken();
 
   doc["mqttEnabled"]  = Mqtt.getEnabled();
   if (Mqtt.getServer().length() > 0) {
@@ -359,8 +351,6 @@ void setupRoutes() {
   server.on("/system/time", HTTP_GET, handleSystemTime);
   server.on("/system/time", HTTP_POST, handleSystemTimePost);
   server.on("/system/reboot", HTTP_POST, handleSystemReboot);
-  server.on("/system/logs", HTTP_GET, handleSystemLogsGet);
-  server.on("/system/logs", HTTP_POST, handleSystemLogsPost);
   server.on("/system/name", HTTP_GET, handleSystemNameGet);
   server.on("/system/name", HTTP_POST, handleSystemNamePost);
   server.on("/system/mqtt", HTTP_GET, handleSystemMqttGet);
@@ -509,39 +499,9 @@ void handleSystemReboot() {
   if (!checkApiAuth()) return;
 
   sendJsonResponse(200, "Rebooting...");
-  Logger.Info(LogEvent::SYSTEM_REBOOT);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_REBOOT);
   delay(500);
   ESP.restart();
-}
-
-void handleSystemLogsGet() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  doc["logUrl"]   = Logger.getUrl();
-  doc["logToken"] = Logger.getToken();
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleSystemLogsPost() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (doc["logUrl"].is<const char*>())   Logger.setUrl(doc["logUrl"].as<const char*>());
-  if (doc["logToken"].is<const char*>()) Logger.setToken(doc["logToken"].as<const char*>());
-
-  saveSettings();
-  sendJsonResponse(200, "ok");
 }
 
 void handleSystemNameGet() {
@@ -572,7 +532,6 @@ void handleSystemNamePost() {
   }
 
   deviceName = doc["name"].as<const char*>();
-  Logger.setDevice(deviceName.c_str());
   saveSettings();
   sendJsonResponse(200, "ok");
 }
@@ -740,7 +699,7 @@ void handleValveOn() {
   Mqtt.publishValveState(valveId);
   char d[32];
   snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
-  Logger.Info(LogEvent::VALVE_ON, d);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVE_ON, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -761,7 +720,7 @@ void handleValveOff() {
   Mqtt.publishValveState(valveId);
   char d[32];
   snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
-  Logger.Info(LogEvent::VALVE_OFF, d);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVE_OFF, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -772,7 +731,7 @@ void handleValvesAllOff() {
   Timers.abortAll();
   Valves.allOff();
   Mqtt.publishAllValveStates();
-  Logger.Info(LogEvent::VALVES_ALL_OFF);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVES_ALL_OFF);
   sendJsonResponse(200, "ok");
 }
 
@@ -898,7 +857,7 @@ void handleScenarioAdd() {
 
   char d[96];
   snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", newId.c_str(), input["name"].as<const char*>());
-  Logger.Info(LogEvent::SCENARIO_ADD, d);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_ADD, d);
 
   JsonDocument response;
   response["message"] = "ok";
@@ -932,7 +891,7 @@ void handleScenarioUpdate() {
 
   char d[96];
   snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", id.c_str(), input["name"].as<const char*>());
-  Logger.Info(LogEvent::SCENARIO_UPDATE, d);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_UPDATE, d);
   sendJsonResponse(200, "ok");
 }
 
@@ -950,7 +909,7 @@ void handleScenarioDelete() {
 
   char d[48];
   snprintf(d, sizeof(d), "{\"id\":\"%s\"}", id.c_str());
-  Logger.Info(LogEvent::SCENARIO_DELETE, d);
+  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_DELETE, d);
   sendJsonResponse(200, "ok");
 }
 

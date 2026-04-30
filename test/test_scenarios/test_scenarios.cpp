@@ -12,7 +12,6 @@
 
 // Include stubs and implementation directly (native test, no separate compilation)
 #include "../stubs/stubs_common.cpp"
-#include "../stubs/stubs_logger.cpp"
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_timers.cpp"
 #include "../stubs/stubs_modules.cpp"

@@ -15,3 +15,4 @@ bool MqttManager::isConnected() const { return false; }
 void MqttManager::setServer(const char* server, uint16_t port) { _server = server; _port = port; }
 void MqttManager::setCredentials(const char* user, const char* password) { _user = user; _password = password; }
 void MqttManager::disconnect() {}
+void MqttManager::publishEvent(const char*, const char*, const char*) {}
