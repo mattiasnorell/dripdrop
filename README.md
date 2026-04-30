@@ -8,14 +8,15 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 - Scenario-based if-this-then-that automation (time, day-of-week, sensor conditions)
 - One-time timer support for manual watering sessions
 - REST API for remote control and monitoring
+- I²C sensor module support (up to 8 modules; temperature, humidity, etc.)
+- MQTT pub/sub for telemetry, remote control, and event logging
 - NTP time synchronization with DST support
 - OTA firmware updates via web interface
 - mDNS discovery (access via `dripdrop.local`)
-- LittleFS persistence for scenarios and settings
+- LittleFS persistence for scenarios, modules, and settings
 - Automatic WiFi reconnection with AP fallback
 - Watchdog timer for reliability
 - Optional API key authentication
-- Event logging to external HTTP endpoint
 
 ## Hardware Requirements
 
@@ -23,6 +24,7 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 - 4-channel relay module (active LOW recommended)
 - 12V/24V solenoid valves (depending on your irrigation system)
 - Power supply appropriate for your valves
+- (Optional) Arduino Nano-based I²C sensor modules on the I²C bus (SDA/SCL)
 
 ### Default Pin Configuration
 
@@ -46,8 +48,8 @@ dripdrop/
 │   ├── valves.cpp/h    # ValveController — GPIO control, state tracking
 │   ├── timers.cpp/h    # TimerManager — one-shot timed valve activation
 │   ├── scenarios.cpp/h # ScenarioManager — condition/action automation
-│   ├── sensors.cpp/h   # SensorManager — I2C sensor readings
-│   ├── logger.cpp/h    # Event logger — HTTP log shipping
+│   ├── modules.cpp/h   # ModuleManager — I²C sensor module discovery and readings
+│   ├── mqtt.cpp/h      # MQTT — telemetry publishing and remote control
 │   └── AppHtml.h       # Embedded web UI
 ├── test/
 │   ├── stubs/          # Arduino/hardware stubs for native testing
@@ -191,8 +193,6 @@ All endpoints return JSON. POST endpoints accept a JSON body with `Content-Type:
 | POST | `/system/time` | Set time manually `{"unixTime": 1234567890}` |
 | GET | `/system/name` | Get device name |
 | POST | `/system/name` | Set device name `{"name": "garden"}` |
-| GET | `/system/logs` | Get event log URL and token |
-| POST | `/system/logs` | Set event log URL and token |
 | POST | `/system/reboot` | Reboot device |
 
 ### Valves
@@ -201,6 +201,7 @@ All endpoints return JSON. POST endpoints accept a JSON body with `Content-Type:
 |--------|----------|-------------|
 | GET | `/valves` | List all valves with state and timer info |
 | GET | `/valves/{id}/state` | State of a specific valve |
+| POST | `/valves/{id}` | Update valve settings — body: `{"customName": "Front Garden"}` |
 | POST | `/valves/{id}/on` | Turn valve on manually |
 | POST | `/valves/{id}/off` | Turn valve off, cancel its timer |
 | POST | `/valves/off` | Turn all valves off, cancel all timers |
@@ -210,6 +211,7 @@ Valve list response:
 [
   {
     "id": 1,
+    "customName": "Front Garden",
     "isOn": true,
     "source": 3,
     "lastRunStart": 1707840000,
@@ -219,6 +221,8 @@ Valve list response:
 ]
 ```
 Source values: `0`=NONE, `1`=SCENARIO, `2`=TIMER, `3`=MANUAL
+
+Pass `null` or an empty string for `customName` to clear it.
 
 ### Timers
 
@@ -283,6 +287,90 @@ Operators: `gt`, `lt`, `eq`
   ]
 }
 ```
+
+### Modules
+
+Sensor modules are Arduino Nano-based I²C devices. They must be physically connected to the I²C bus, discovered via scan, then registered before they can be used in scenarios.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/modules` | List all registered modules |
+| POST | `/modules/scan` | Scan the I²C bus for modules |
+| POST | `/modules/{uid}/register` | Register a discovered module by UID |
+| POST | `/modules/{uid}` | Update module settings — body: `{"customName": "Soil Sensor"}` |
+| DELETE | `/modules/{uid}` | Remove a registered module |
+| GET | `/modules/{uid}/reading` | Get current sensor reading |
+
+Registered modules response:
+```json
+[
+  {
+    "uid": "TEMP001ABC12",
+    "type": "TMP",
+    "version": 1,
+    "unit": "C",
+    "addr": 8,
+    "customName": "Soil Sensor"
+  }
+]
+```
+
+Scan result (`POST /modules/scan`):
+```json
+[
+  {
+    "addr": 8,
+    "uid": "TEMP001ABC12",
+    "type": "TMP",
+    "version": 1,
+    "unit": "C",
+    "registered": true
+  }
+]
+```
+
+Reading response (`GET /modules/{uid}/reading`):
+```json
+{"value": 22.5}
+```
+
+### MQTT
+
+MQTT is optional. When enabled, the device publishes valve state, timers, and events to a broker and subscribes to control topics.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/system/mqtt` | Get MQTT configuration and connection status |
+| POST | `/system/mqtt` | Update MQTT settings |
+
+MQTT settings body:
+```json
+{
+  "enabled": true,
+  "server": "192.168.1.100",
+  "port": 1883,
+  "user": "mqttuser",
+  "password": "mqttpassword"
+}
+```
+
+**Published topics** (prefix: `dripdrop/{deviceName}`):
+
+| Topic | Description |
+|-------|-------------|
+| `.../valve/{id}/state` | Valve on/off state, source, last run |
+| `.../timer/{id}/state` | Timer start/remaining/expire events |
+| `.../sensor/{uid}/state` | Sensor reading `{"value": 22.5}` |
+| `.../system/state` | System health snapshot |
+| `.../event` | Structured log events (INFO/WARNING) |
+| `.../status` | `online` / `offline` (LWT) |
+
+**Subscribed topics:**
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `.../valve/+/set` | `{"state": "on"}` / `{"state": "off"}` | Remote valve control |
+| `.../timer/+/set` | `{"duration": 300}` | Start a timer |
 
 ### Authentication
 
