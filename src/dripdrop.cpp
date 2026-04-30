@@ -18,7 +18,7 @@
  *
  * Requires Arduino ESP32 core v2.x+ (for UriBraces path parameter support).
  *
- * @version 4.0.0
+ * @version 4.0.7
  */
 
 #include <Arduino.h>
@@ -31,6 +31,7 @@
 #include <uri/UriBraces.h>
 #include <esp_task_wdt.h>
 #include <atomic>
+#include <LittleFS.h>
 
 #include "config.h"
 #include "types.h"
@@ -40,7 +41,7 @@
 #include "modules.h"
 #include "mqtt.h"
 #include "AppHtml.h"
-#include <LittleFS.h>
+#include "api_utils.h"
 
 // =============================================================================
 // Global Objects
@@ -54,30 +55,24 @@ WebServer server(HTTP_PORT);
 
 static unsigned long lastScenarioCheck = 0;
 static unsigned long lastWifiCheck = 0;
-static unsigned long lastNtpSync = 0;
-static std::atomic<bool> ntpSynced{ false };
-static bool apMode = false;
-static String deviceName = "dripdrop";
+unsigned long lastNtpSync = 0;
+std::atomic<bool> ntpSynced{ false };
+bool apMode = false;
+String deviceName = "dripdrop";
 
 // =============================================================================
-// Forward Declarations
+// Forward Declarations — Setup & Loop Helpers
 // =============================================================================
 
-// Setup functions
 void setupWiFi();
 void setupMdns();
 void setupNtp();
 void setupWatchdog();
 void setupRoutes();
 void loadSettings();
-void saveSettings();
-void handleSystemNameGet();   // GET  /system/name
-void handleSystemNamePost();  // POST /system/name
-
-// Loop helpers
 void checkWiFiConnection();
 
-// HTTP handlers
+// Forward Declarations — HTTP Handlers
 void handleRoot();
 void handleNotFound();
 void handleSystemStatus();
@@ -86,35 +81,29 @@ void handleSystemPing();
 void handleSystemTime();
 void handleSystemTimePost();
 void handleSystemReboot();
+void handleSystemNameGet();
+void handleSystemNamePost();
+void handleSystemMqttGet();
+void handleSystemMqttPost();
 void handleValveList();
-void handleValveState();      // GET  /valves/{id}/state
-void handleValveUpdate();     // POST /valves/{id}
-void handleValveOn();         // POST /valves/{id}/on
-void handleValveOff();        // POST /valves/{id}/off
-void handleValvesAllOff();    // POST /valves/off
-void handleTimerGet();        // GET  /timers
-void handleTimerPost();       // POST /valves/{id}/timer
-void handleTimerAbort();      // DELETE /valves/{id}/timer
-void handleScenarioList();    // GET  /scenarios
-void handleScenarioAdd();     // POST /scenarios
-void handleScenarioUpdate();  // POST /scenarios/{id}
-void handleScenarioDelete();  // DELETE /scenarios/{id}
-void handleModuleList();      // GET  /modules
-void handleModuleScan();      // POST /modules/scan
-void handleModuleRegister();  // POST /modules/{uid}/register
-void handleModuleUpdate();    // POST /modules/{uid}
-void handleModuleRemove();    // DELETE /modules/{uid}
-void handleModuleReading();   // GET  /modules/{uid}/reading
-void handleSystemMqttGet();   // GET  /system/mqtt
-void handleSystemMqttPost();  // POST /system/mqtt
-
-// Utility functions
-void sendJsonResponse(int code, const char* message);
-void sendJsonError(int code, const char* error);
-void sendCorsHeaders();
-bool parseJsonBody(JsonDocument& doc);
-bool checkApiAuth();
-SystemStatus getSystemStatus();
+void handleValveState();
+void handleValveUpdate();
+void handleValveOn();
+void handleValveOff();
+void handleValvesAllOff();
+void handleTimerGet();
+void handleTimerPost();
+void handleTimerAbort();
+void handleScenarioList();
+void handleScenarioAdd();
+void handleScenarioUpdate();
+void handleScenarioDelete();
+void handleModuleList();
+void handleModuleScan();
+void handleModuleRegister();
+void handleModuleUpdate();
+void handleModuleRemove();
+void handleModuleReading();
 
 // =============================================================================
 // Setup
@@ -173,7 +162,7 @@ void setup() {
   DEBUG_PRINTF("Free heap: %lu bytes\n", ESP.getFreeHeap());
   DEBUG_PRINTLN(F("========================================\n"));
 
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_BOOT);
+  Mqtt.publishEvent(LogLevel::INFO, LogEvent::SYSTEM_BOOT);
 }
 
 // =============================================================================
@@ -208,7 +197,7 @@ void loop() {
 
       char d[32];
       snprintf(d, sizeof(d), "{\"currentTime\":%d}", currentTime);
-      Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_NTP_SYNCED, d);
+      Mqtt.publishEvent(LogLevel::INFO, LogEvent::SYSTEM_NTP_SYNCED, d);
     }
   } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
     lastNtpSync = now;
@@ -258,7 +247,7 @@ void setupWiFi() {
     DD_DEBUG_WIFI("RSSI: %d dBm\n", WiFi.RSSI());
   } else {
     DD_DEBUG_WIFI("Connection failed, starting AP mode\n");
-    Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_WIFI_FAILED);
+    Mqtt.publishEvent(LogLevel::INFO, LogEvent::SYSTEM_WIFI_FAILED);
     apMode = true;
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -387,706 +376,4 @@ void setupRoutes() {
 
   // 404 / OPTIONS preflight catch-all
   server.onNotFound(handleNotFound);
-}
-
-// =============================================================================
-// HTTP Handlers - System
-// =============================================================================
-
-void handleRoot() {
-  server.send_P(200, "text/html", APP_HTML);
-}
-
-void handleNotFound() {
-  sendCorsHeaders();
-  if (server.method() == HTTP_OPTIONS) {
-    server.send(204);
-    return;
-  }
-  sendJsonError(404, "Not Found");
-}
-
-void handleSystemStatus() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  SystemStatus status = getSystemStatus();
-
-  JsonDocument doc;
-  doc["firmware"] = FIRMWARE_VERSION;
-  doc["uptime"] = status.uptime;
-  doc["uptimeFormatted"] = String(status.uptime / 86400000) + "d " + String((status.uptime / 3600000) % 24) + "h " + String((status.uptime / 60000) % 60) + "m";
-  doc["freeHeap"] = status.freeHeap;
-  doc["wifiConnected"] = status.wifiConnected;
-  doc["wifiRssi"] = status.wifiRssi;
-  doc["apMode"] = status.apMode;
-  doc["ntpSynced"] = status.ntpSynced;
-  doc["currentTime"] = status.currentTime;
-  doc["activeValves"] = status.activeValves;
-  doc["activeScenarios"] = status.activeScenarios;
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleSystemIp() {
-  sendCorsHeaders();
-  server.send(200, "text/plain",
-              apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString());
-}
-
-void handleSystemPing() {
-  sendCorsHeaders();
-  sendJsonResponse(200, "pong");
-}
-
-void handleSystemTime() {
-  sendCorsHeaders();
-
-  JsonDocument doc;
-  time_t now = time(nullptr);
-  doc["unixTime"] = now;
-  doc["synced"] = ntpSynced.load();
-
-  if (ntpSynced) {
-    struct tm timeInfo;
-    localtime_r(&now, &timeInfo);
-
-    char buffer[32];
-    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeInfo);
-    doc["formatted"] = buffer;
-    doc["dayOfWeek"] = timeInfo.tm_wday;
-  }
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleSystemTimePost() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON body");
-    return;
-  }
-
-  if (!doc["unixTime"].is<long>()) {
-    sendJsonError(400, "unixTime (integer) is required");
-    return;
-  }
-
-  time_t newTime = doc["unixTime"];
-  if (newTime <= MIN_VALID_UNIX_TIME) {
-    sendJsonError(400, "unixTime value is invalid");
-    return;
-  }
-
-  struct timeval tv;
-  tv.tv_sec = newTime;
-  tv.tv_usec = 0;
-  settimeofday(&tv, nullptr);
-
-  ntpSynced = true;
-  lastNtpSync = millis();
-
-  sendJsonResponse(200, "ok");
-}
-
-void handleSystemReboot() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  sendJsonResponse(200, "Rebooting...");
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SYSTEM_REBOOT);
-  delay(500);
-  ESP.restart();
-}
-
-void handleSystemNameGet() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  doc["name"] = deviceName;
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleSystemNamePost() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (!doc["name"].is<const char*>() || strlen(doc["name"].as<const char*>()) == 0) {
-    sendJsonError(400, "name (string) is required");
-    return;
-  }
-
-  deviceName = doc["name"].as<const char*>();
-  saveSettings();
-  sendJsonResponse(200, "ok");
-}
-
-// =============================================================================
-// HTTP Handlers - MQTT
-// =============================================================================
-
-void handleSystemMqttGet() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  doc["enabled"]   = Mqtt.getEnabled();
-  doc["server"]    = Mqtt.getServer();
-  doc["port"]      = Mqtt.getPort();
-  doc["user"]      = Mqtt.getUser();
-  doc["connected"] = Mqtt.isConnected();
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleSystemMqttPost() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (doc["enabled"].is<bool>()) {
-    Mqtt.setEnabled(doc["enabled"].as<bool>());
-  }
-
-  if (doc["server"].is<const char*>()) {
-    uint16_t port = doc["port"] | Mqtt.getPort();
-    Mqtt.setServer(doc["server"].as<const char*>(), port);
-  }
-
-  const char* user = doc["user"] | Mqtt.getUser().c_str();
-  const char* password = doc["password"] | "";
-  if (doc["user"].is<const char*>() || doc["password"].is<const char*>()) {
-    Mqtt.setCredentials(user, password);
-  }
-
-  saveSettings();
-
-  Mqtt.disconnect();
-  if (Mqtt.getEnabled()) Mqtt.begin();
-
-  sendJsonResponse(200, "ok");
-}
-
-// =============================================================================
-// HTTP Handlers - Valves
-// =============================================================================
-
-void handleValveList() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  time_t now = time(nullptr);
-
-  JsonDocument doc;
-  JsonArray arr = doc.to<JsonArray>();
-
-  for (uint8_t i = 0; i < Valves.count(); i++) {
-    const Valve* valve = Valves.getValve(i);
-    if (!valve) continue;
-
-    JsonObject obj = arr.add<JsonObject>();
-    obj["id"] = valve->id;
-    obj["customName"] = valve->customName[0] ? (const char*)valve->customName : (const char*)nullptr;
-    obj["isOn"] = valve->isOn;
-    obj["source"] = static_cast<int>(valve->source);
-    obj["lastRunStart"] = valve->lastRunStart;
-    obj["lastRunEnd"] = valve->lastRunEnd;
-
-    if (Timers.isActive(valve->id, now)) {
-      obj["timerRemaining"] = Timers.getRemainingSeconds(valve->id, now);
-    }
-  }
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleValveState() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-  int8_t index = Valves.findByValveId(valveId);
-
-  if (index < 0) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  const Valve* valve = Valves.getValve(index);
-  time_t now = time(nullptr);
-
-  JsonDocument doc;
-  doc["valveId"] = valveId;
-  doc["customName"] = valve->customName[0] ? (const char*)valve->customName : (const char*)nullptr;
-  doc["isOn"] = valve->isOn;
-  doc["source"] = static_cast<int>(valve->source);
-
-  if (Timers.isActive(valveId, now)) {
-    doc["timerRemaining"] = Timers.getRemainingSeconds(valveId, now);
-  }
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleValveUpdate() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-  int8_t index = Valves.findByValveId(valveId);
-
-  if (index < 0) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  JsonDocument doc;
-  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (doc["customName"].is<const char*>() || doc["customName"].isNull()) {
-    if (doc["customName"].isNull() || doc["customName"].as<const char*>()[0] == '\0') {
-      Valves.setCustomName(index, nullptr);
-    } else {
-      Valves.setCustomName(index, doc["customName"].as<const char*>());
-    }
-  }
-
-  sendJsonResponse(200, "Valve updated");
-}
-
-void handleValveOn() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-  int8_t index = Valves.findByValveId(valveId);
-
-  if (index < 0) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  Valves.setState(index, true, ValveSource::MANUAL);
-  Mqtt.publishValveState(valveId);
-  char d[32];
-  snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVE_ON, d);
-  sendJsonResponse(200, "ok");
-}
-
-void handleValveOff() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-  int8_t index = Valves.findByValveId(valveId);
-
-  if (index < 0) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  Timers.abort(valveId);
-  Valves.setState(index, false, ValveSource::NONE);
-  Mqtt.publishValveState(valveId);
-  char d[32];
-  snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVE_OFF, d);
-  sendJsonResponse(200, "ok");
-}
-
-void handleValvesAllOff() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  Timers.abortAll();
-  Valves.allOff();
-  Mqtt.publishAllValveStates();
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::VALVES_ALL_OFF);
-  sendJsonResponse(200, "ok");
-}
-
-// =============================================================================
-// HTTP Handlers - Timers
-// =============================================================================
-
-void handleTimerGet() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  time_t now = time(nullptr);
-
-  JsonDocument doc;
-  JsonArray arr = doc.to<JsonArray>();
-
-  for (uint8_t i = 0; i < NUM_VALVES; i++) {
-    const Timer* timer = Timers.get(i);
-    if (!timer) continue;
-
-    JsonObject obj = arr.add<JsonObject>();
-    obj["valveId"] = timer->valveId;
-    obj["endTime"] = timer->endTime;
-    obj["active"] = timer->isActive(now);
-
-    if (timer->isActive(now)) {
-      obj["remaining"] = static_cast<long>(timer->endTime - now);
-    }
-  }
-
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-void handleTimerPost() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-
-  if (!Valves.isValidId(valveId)) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (!doc["duration"].is<int>()) {
-    sendJsonError(400, "Missing duration");
-    return;
-  }
-
-  uint32_t duration = doc["duration"];
-
-  if (duration == 0 || duration > MAX_TIMER_DURATION_SEC) {
-    char msg[64];
-    snprintf(msg, sizeof(msg), "Duration must be 1-%lu seconds", MAX_TIMER_DURATION_SEC);
-    sendJsonError(400, msg);
-    return;
-  }
-
-  if (!Timers.start(valveId, duration)) {
-    sendJsonError(500, "Failed to start timer");
-    return;
-  }
-
-  sendJsonResponse(200, "ok");
-}
-
-void handleTimerAbort() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  uint8_t valveId = server.pathArg(0).toInt();
-
-  if (!Valves.isValidId(valveId)) {
-    sendJsonError(404, "Valve not found");
-    return;
-  }
-
-  Timers.abort(valveId);
-  sendJsonResponse(200, "ok");
-}
-
-// =============================================================================
-// HTTP Handlers - Scenarios
-// =============================================================================
-
-// GET /scenarios
-void handleScenarioList() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String output;
-  Scenarios.serialize(output);
-  server.send(200, "application/json", output);
-}
-
-// POST /scenarios
-void handleScenarioAdd() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  JsonObject input = doc.as<JsonObject>();
-  String newId;
-  const char* err = Scenarios.add(input, newId);
-
-  if (err) {
-    sendJsonError(400, err);
-    return;
-  }
-
-  char d[96];
-  snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", newId.c_str(), input["name"].as<const char*>());
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_ADD, d);
-
-  JsonDocument response;
-  response["message"] = "ok";
-  response["id"] = newId;
-
-  String output;
-  serializeJson(response, output);
-  server.send(200, "application/json", output);
-}
-
-// POST /scenarios/{id}
-void handleScenarioUpdate() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String id = server.pathArg(0);
-
-  JsonDocument doc;
-  if (!parseJsonBody(doc)) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  JsonObject input = doc.as<JsonObject>();
-  const char* err = Scenarios.update(id.c_str(), input);
-
-  if (err) {
-    sendJsonError(400, err);
-    return;
-  }
-
-  char d[96];
-  snprintf(d, sizeof(d), "{\"id\":\"%s\",\"name\":\"%s\"}", id.c_str(), input["name"].as<const char*>());
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_UPDATE, d);
-  sendJsonResponse(200, "ok");
-}
-
-// DELETE /scenarios/{id}
-void handleScenarioDelete() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String id = server.pathArg(0);
-
-  if (!Scenarios.remove(id.c_str())) {
-    sendJsonError(404, "Scenario not found");
-    return;
-  }
-
-  char d[48];
-  snprintf(d, sizeof(d), "{\"id\":\"%s\"}", id.c_str());
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::SCENARIO_DELETE, d);
-  sendJsonResponse(200, "ok");
-}
-
-// =============================================================================
-// HTTP Handlers - Modules
-// =============================================================================
-
-// GET /modules
-void handleModuleList() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String output;
-  Modules.serializeRegistered(output);
-  server.send(200, "application/json", output);
-}
-
-// POST /modules/scan
-void handleModuleScan() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  Modules.scanModules();
-  String output;
-  Modules.serializeScan(output);
-  server.send(200, "application/json", output);
-}
-
-// POST /modules/{uid}/register
-void handleModuleRegister() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String uid = server.pathArg(0);
-  if (!Modules.registerModule(uid.c_str())) {
-    sendJsonError(409, "Already registered or not found in last scan");
-    return;
-  }
-  sendJsonResponse(200, "Registered");
-}
-
-// DELETE /modules/{uid}
-void handleModuleRemove() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String uid = server.pathArg(0);
-  if (!Modules.removeModule(uid.c_str())) {
-    sendJsonError(404, "Not found");
-    return;
-  }
-  sendJsonResponse(200, "Removed");
-}
-
-// POST /modules/{uid}
-void handleModuleUpdate() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String uid = server.pathArg(0);
-
-  JsonDocument doc;
-  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) {
-    sendJsonError(400, "Invalid JSON");
-    return;
-  }
-
-  if (doc["customName"].is<const char*>() || doc["customName"].isNull()) {
-    const char* name = doc["customName"].isNull() ? nullptr : doc["customName"].as<const char*>();
-    if (!Modules.setCustomName(uid.c_str(), name)) {
-      sendJsonError(404, "Module not found");
-      return;
-    }
-  }
-
-  sendJsonResponse(200, "Module updated");
-}
-
-// GET /modules/{uid}/reading
-void handleModuleReading() {
-  sendCorsHeaders();
-  if (!checkApiAuth()) return;
-
-  String uid = server.pathArg(0);
-  uint8_t addr = Modules.addrForUid(uid.c_str());
-  if (addr == 0) {
-    sendJsonError(404, "Module not registered");
-    return;
-  }
-
-  SensorResponse resp;
-  if (!Modules.readModule(addr, resp)) {
-    sendJsonError(422, "Sensor read failed");
-    return;
-  }
-
-  JsonDocument doc;
-  doc["value"] = resp.value;
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
-}
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-void sendJsonResponse(int code, const char* message) {
-  JsonDocument doc;
-  doc["message"] = message;
-
-  String output;
-  serializeJson(doc, output);
-  server.send(code, "application/json", output);
-}
-
-void sendJsonError(int code, const char* error) {
-  JsonDocument doc;
-  doc["error"] = error;
-
-  String output;
-  serializeJson(doc, output);
-  server.send(code, "application/json", output);
-}
-
-void sendCorsHeaders() {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
-  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  server.sendHeader("Access-Control-Max-Age", "600");
-}
-
-bool parseJsonBody(JsonDocument& doc) {
-  if (!server.hasArg("plain")) {
-    DEBUG_API("No request body\n");
-    return false;
-  }
-
-  DeserializationError error = deserializeJson(doc, server.arg("plain"));
-  if (error) {
-    DEBUG_API("JSON parse error: %s\n", error.c_str());
-    return false;
-  }
-
-  return true;
-}
-
-bool checkApiAuth() {
-#if API_AUTH_ENABLED
-  if (!server.hasHeader(API_KEY_HEADER)) {
-    sendCorsHeaders();
-    sendJsonError(401, "Missing API key");
-    return false;
-  }
-
-  if (server.header(API_KEY_HEADER) != API_KEY) {
-    sendCorsHeaders();
-    sendJsonError(403, "Invalid API key");
-    return false;
-  }
-#endif
-
-  return true;
-}
-
-SystemStatus getSystemStatus() {
-  SystemStatus status;
-  status.uptime = millis();
-  status.freeHeap = ESP.getFreeHeap();
-  status.wifiConnected = (WiFi.status() == WL_CONNECTED);
-  status.wifiRssi = WiFi.RSSI();
-  status.apMode = apMode;
-  status.ntpSynced = ntpSynced;
-  status.currentTime = time(nullptr);
-  status.activeValves = Valves.getActiveCount();
-  status.activeScenarios = Scenarios.count();
-  return status;
 }
