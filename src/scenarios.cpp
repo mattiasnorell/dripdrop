@@ -7,6 +7,7 @@
 #include "timers.h"
 #include "modules.h"
 #include "logger.h"
+#include "mqtt.h"
 #include <LittleFS.h>
 
 ScenarioManager Scenarios;
@@ -425,11 +426,13 @@ void ScenarioManager::executeActions(const JsonArray& actions, time_t now) {
       // Use the timer system for automatic shutoff, then correct the source
       Timers.start(valveId, duration);
       Valves.setState(index, true, ValveSource::SCENARIO);
+      Mqtt.publishValveState(valveId);
       DEBUG_SCENARIO("Valve %d ON for %d min\n", valveId, duration);
     } else {
       // state == "off"
       Timers.abort(valveId);
       Valves.setState(index, false, ValveSource::NONE);
+      Mqtt.publishValveState(valveId);
       DEBUG_SCENARIO("Valve %d OFF\n", valveId);
     }
   }

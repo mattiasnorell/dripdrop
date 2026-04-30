@@ -15,6 +15,7 @@ void ValveController::begin() {
     stubValves[i].lastRunEnd = 0;
     stubValves[i].source = ValveSource::NONE;
     stubValves[i].isOn = false;
+    stubValves[i].customName[0] = '\0';
   }
 }
 
@@ -60,5 +61,17 @@ uint8_t ValveController::getActiveCount() const {
   return count;
 }
 
+bool ValveController::setCustomName(uint8_t index, const char* name) {
+  if (index >= NUM_VALVES) return false;
+  if (name && name[0] != '\0') {
+    strlcpy(stubValves[index].customName, name, sizeof(stubValves[index].customName));
+  } else {
+    stubValves[index].customName[0] = '\0';
+  }
+  return true;
+}
+
 void ValveController::writeHardware(uint8_t, bool) {}
 bool ValveController::readHardware(uint8_t) const { return false; }
+void ValveController::loadNames() {}
+void ValveController::saveNames() {}

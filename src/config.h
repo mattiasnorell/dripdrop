@@ -51,6 +51,42 @@ constexpr const char* MDNS_HOSTNAME = "dripdrop";
 constexpr uint16_t HTTP_PORT = 80;
 
 // =============================================================================
+// MQTT Configuration
+// =============================================================================
+
+// Set to true to enable MQTT client
+#ifndef MQTT_ENABLED
+  #define MQTT_ENABLED false
+#endif
+
+// MQTT broker address and port
+#ifndef MQTT_SERVER
+  #define MQTT_SERVER ""
+#endif
+
+#ifndef MQTT_PORT
+  #define MQTT_PORT 1883
+#endif
+
+// MQTT credentials (optional)
+#ifndef MQTT_USER
+  #define MQTT_USER ""
+#endif
+
+#ifndef MQTT_PASSWORD
+  #define MQTT_PASSWORD ""
+#endif
+
+// Non-blocking reconnect interval
+constexpr unsigned long MQTT_RECONNECT_INTERVAL_MS = 15000;
+
+// Periodic full-state publish interval
+constexpr unsigned long MQTT_STATE_INTERVAL_MS = 60000;
+
+// PubSubClient buffer size (needs room for JSON payloads)
+constexpr uint16_t MQTT_BUFFER_SIZE = 512;
+
+// =============================================================================
 // API Authentication (optional)
 // =============================================================================
 
@@ -179,7 +215,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.0.6"
+#define FIRMWARE_VERSION "4.0.7"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================
@@ -201,6 +237,9 @@ constexpr uint16_t EVENT_LOG_TIMEOUT_MS = 2000;
 
 // LittleFS file for persisted settings (log URL, log token)
 constexpr const char* SETTINGS_FILE = "/settings.json";
+
+// LittleFS file for custom valve names
+constexpr const char* VALVE_NAMES_FILE = "/valve_names.json";
 
 // =============================================================================
 // Include local overrides if available

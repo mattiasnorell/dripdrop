@@ -5,6 +5,7 @@
 #include "timers.h"
 #include "valves.h"
 #include "logger.h"
+#include "mqtt.h"
 
 // Global instance
 TimerManager Timers;
@@ -44,6 +45,7 @@ void TimerManager::check(time_t currentTime) {
       if (!valve->isManuallyControlled()) {
         Valves.setState(i, false, ValveSource::NONE);
       }
+      Mqtt.publishValveState(valveId);
     }
   }
 }

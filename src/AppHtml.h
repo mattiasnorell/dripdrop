@@ -102,6 +102,100 @@ const char APP_HTML[] PROGMEM = R"=====(
             font-size: 0.9em;
             color: #666;
         }
+        .settings-section {
+            margin-top: 30px;
+            border-top: 1px solid #e9ecef;
+            padding-top: 20px;
+        }
+        .settings-section h2 {
+            color: #333;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+        }
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85em;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group input[type="password"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .toggle-row label {
+            font-size: 0.9em;
+            color: #333;
+            font-weight: 500;
+        }
+        .switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: #ccc;
+            border-radius: 24px;
+            transition: 0.3s;
+        }
+        .slider::before {
+            content: '';
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .switch input:checked + .slider {
+            background: #28a745;
+        }
+        .switch input:checked + .slider::before {
+            transform: translateX(20px);
+        }
+        .btn-save {
+            background: #667eea;
+            color: white;
+            margin-top: 8px;
+        }
+        .mqtt-status {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 8px;
+        }
+        .mqtt-status .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .dot-green { background: #28a745; }
+        .dot-red { background: #dc3545; }
+        .dot-gray { background: #adb5bd; }
     </style>
 </head>
 <body>
@@ -117,6 +211,37 @@ const char APP_HTML[] PROGMEM = R"=====(
         
         <div class="status-bar" id="status">
             Connecting to system...
+        </div>
+
+        <div class="settings-section">
+            <h2>MQTT Settings</h2>
+            <div class="toggle-row">
+                <label for="mqttEnabled">Enable MQTT</label>
+                <label class="switch">
+                    <input type="checkbox" id="mqttEnabled">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div id="mqttFields">
+                <div class="form-group">
+                    <label for="mqttServer">Server</label>
+                    <input type="text" id="mqttServer" placeholder="e.g. 192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label for="mqttPort">Port</label>
+                    <input type="number" id="mqttPort" value="1883">
+                </div>
+                <div class="form-group">
+                    <label for="mqttUser">Username</label>
+                    <input type="text" id="mqttUser" placeholder="(optional)">
+                </div>
+                <div class="form-group">
+                    <label for="mqttPassword">Password</label>
+                    <input type="password" id="mqttPassword" placeholder="(optional)">
+                </div>
+            </div>
+            <button class="btn btn-save" onclick="saveMqtt()">Save</button>
+            <div class="mqtt-status" id="mqttStatus"></div>
         </div>
     </div>
     
@@ -163,8 +288,52 @@ const char APP_HTML[] PROGMEM = R"=====(
             }
         }
         
+        async function fetchMqtt() {
+            try {
+                const res = await fetch(`${API_BASE}/system/mqtt`);
+                const data = await res.json();
+                document.getElementById('mqttEnabled').checked = data.enabled;
+                document.getElementById('mqttServer').value = data.server || '';
+                document.getElementById('mqttPort').value = data.port || 1883;
+                document.getElementById('mqttUser').value = data.user || '';
+                updateMqttStatus(data);
+            } catch (e) {}
+        }
+
+        function updateMqttStatus(data) {
+            const el = document.getElementById('mqttStatus');
+            if (!data.enabled) {
+                el.innerHTML = '<span class="dot dot-gray"></span>Disabled';
+            } else if (data.connected) {
+                el.innerHTML = '<span class="dot dot-green"></span>Connected';
+            } else {
+                el.innerHTML = '<span class="dot dot-red"></span>Disconnected';
+            }
+        }
+
+        async function saveMqtt() {
+            try {
+                const body = {
+                    enabled: document.getElementById('mqttEnabled').checked,
+                    server: document.getElementById('mqttServer').value,
+                    port: parseInt(document.getElementById('mqttPort').value) || 1883,
+                    user: document.getElementById('mqttUser').value,
+                    password: document.getElementById('mqttPassword').value
+                };
+                await fetch(`${API_BASE}/system/mqtt`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                fetchMqtt();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
         // Initial load and refresh every 5 seconds
         fetchValves();
+        fetchMqtt();
         setInterval(fetchValves, 5000);
     </script>
 </body>

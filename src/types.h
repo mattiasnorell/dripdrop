@@ -37,6 +37,7 @@ struct Valve {
   time_t lastRunEnd;       // Unix timestamp of last deactivation
   ValveSource source;      // Current control source
   bool isOn;               // Current state (cached for efficiency)
+  char customName[32];     // User-defined name, empty string if not set
 
   // Helper methods
   inline bool isManuallyControlled() const { return source == ValveSource::MANUAL; }

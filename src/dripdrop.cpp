@@ -39,6 +39,7 @@
 #include "scenarios.h"
 #include "modules.h"
 #include "logger.h"
+#include "mqtt.h"
 #include "AppHtml.h"
 #include <LittleFS.h>
 
@@ -88,6 +89,7 @@ void handleSystemTimePost();
 void handleSystemReboot();
 void handleValveList();
 void handleValveState();      // GET  /valves/{id}/state
+void handleValveUpdate();     // POST /valves/{id}
 void handleValveOn();         // POST /valves/{id}/on
 void handleValveOff();        // POST /valves/{id}/off
 void handleValvesAllOff();    // POST /valves/off
@@ -105,6 +107,8 @@ void handleModuleRemove();    // DELETE /modules/{uid}
 void handleModuleReading();   // GET  /modules/{uid}/reading
 void handleSystemLogsGet();   // GET  /system/logs
 void handleSystemLogsPost();  // POST /system/logs
+void handleSystemMqttGet();   // GET  /system/mqtt
+void handleSystemMqttPost();  // POST /system/mqtt
 
 // Utility functions
 void sendJsonResponse(int code, const char* message);
@@ -137,6 +141,7 @@ void setup() {
   Scenarios.begin();
   Modules.begin();
   loadSettings();
+  Mqtt.begin();
 
   setupWatchdog();
   setupWiFi();
@@ -212,6 +217,7 @@ void loop() {
   }
 
   Scenarios.maybeSave(now);
+  Mqtt.loop(now);
   ElegantOTA.loop();
   esp_task_wdt_reset();
 }
@@ -310,6 +316,10 @@ void loadSettings() {
     if (doc["logUrl"].is<const char*>())    Logger.setUrl(doc["logUrl"].as<const char*>());
     if (doc["logToken"].is<const char*>())  Logger.setToken(doc["logToken"].as<const char*>());
     if (doc["name"].is<const char*>())      deviceName = doc["name"].as<const char*>();
+
+    if (doc["mqttEnabled"].is<bool>())        Mqtt.setEnabled(doc["mqttEnabled"].as<bool>());
+    if (doc["mqttServer"].is<const char*>()) Mqtt.setServer(doc["mqttServer"].as<const char*>(), doc["mqttPort"] | MQTT_PORT);
+    if (doc["mqttUser"].is<const char*>())   Mqtt.setCredentials(doc["mqttUser"].as<const char*>(), doc["mqttPassword"] | "");
   }
   Logger.setDevice(deviceName.c_str());
   file.close();
@@ -324,6 +334,13 @@ void saveSettings() {
   doc["name"]     = deviceName;
   doc["logUrl"]   = Logger.getUrl();
   doc["logToken"] = Logger.getToken();
+
+  doc["mqttEnabled"]  = Mqtt.getEnabled();
+  if (Mqtt.getServer().length() > 0) {
+    doc["mqttServer"]   = Mqtt.getServer();
+    doc["mqttPort"]     = Mqtt.getPort();
+    doc["mqttUser"]     = Mqtt.getUser();
+  }
   serializeJson(doc, file);
   file.close();
 }
@@ -346,11 +363,14 @@ void setupRoutes() {
   server.on("/system/logs", HTTP_POST, handleSystemLogsPost);
   server.on("/system/name", HTTP_GET, handleSystemNameGet);
   server.on("/system/name", HTTP_POST, handleSystemNamePost);
+  server.on("/system/mqtt", HTTP_GET, handleSystemMqttGet);
+  server.on("/system/mqtt", HTTP_POST, handleSystemMqttPost);
 
   // Valves
   server.on("/valves", HTTP_GET, handleValveList);
   server.on("/valves/off", HTTP_POST, handleValvesAllOff);
   server.on(UriBraces("/valves/{}/state"), HTTP_GET, handleValveState);
+  server.on(UriBraces("/valves/{}"), HTTP_POST, handleValveUpdate);
   server.on(UriBraces("/valves/{}/on"), HTTP_POST, handleValveOn);
   server.on(UriBraces("/valves/{}/off"), HTTP_POST, handleValveOff);
 
@@ -558,6 +578,59 @@ void handleSystemNamePost() {
 }
 
 // =============================================================================
+// HTTP Handlers - MQTT
+// =============================================================================
+
+void handleSystemMqttGet() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  doc["enabled"]   = Mqtt.getEnabled();
+  doc["server"]    = Mqtt.getServer();
+  doc["port"]      = Mqtt.getPort();
+  doc["user"]      = Mqtt.getUser();
+  doc["connected"] = Mqtt.isConnected();
+
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleSystemMqttPost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (doc["enabled"].is<bool>()) {
+    Mqtt.setEnabled(doc["enabled"].as<bool>());
+  }
+
+  if (doc["server"].is<const char*>()) {
+    uint16_t port = doc["port"] | Mqtt.getPort();
+    Mqtt.setServer(doc["server"].as<const char*>(), port);
+  }
+
+  const char* user = doc["user"] | Mqtt.getUser().c_str();
+  const char* password = doc["password"] | "";
+  if (doc["user"].is<const char*>() || doc["password"].is<const char*>()) {
+    Mqtt.setCredentials(user, password);
+  }
+
+  saveSettings();
+
+  Mqtt.disconnect();
+  if (Mqtt.getEnabled()) Mqtt.begin();
+
+  sendJsonResponse(200, "ok");
+}
+
+// =============================================================================
 // HTTP Handlers - Valves
 // =============================================================================
 
@@ -576,6 +649,7 @@ void handleValveList() {
 
     JsonObject obj = arr.add<JsonObject>();
     obj["id"] = valve->id;
+    obj["customName"] = valve->customName[0] ? (const char*)valve->customName : (const char*)nullptr;
     obj["isOn"] = valve->isOn;
     obj["source"] = static_cast<int>(valve->source);
     obj["lastRunStart"] = valve->lastRunStart;
@@ -608,6 +682,7 @@ void handleValveState() {
 
   JsonDocument doc;
   doc["valveId"] = valveId;
+  doc["customName"] = valve->customName[0] ? (const char*)valve->customName : (const char*)nullptr;
   doc["isOn"] = valve->isOn;
   doc["source"] = static_cast<int>(valve->source);
 
@@ -618,6 +693,35 @@ void handleValveState() {
   String output;
   serializeJson(doc, output);
   server.send(200, "application/json", output);
+}
+
+void handleValveUpdate() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  uint8_t valveId = server.pathArg(0).toInt();
+  int8_t index = Valves.findByValveId(valveId);
+
+  if (index < 0) {
+    sendJsonError(404, "Valve not found");
+    return;
+  }
+
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (doc["customName"].is<const char*>() || doc["customName"].isNull()) {
+    if (doc["customName"].isNull() || doc["customName"].as<const char*>()[0] == '\0') {
+      Valves.setCustomName(index, nullptr);
+    } else {
+      Valves.setCustomName(index, doc["customName"].as<const char*>());
+    }
+  }
+
+  sendJsonResponse(200, "Valve updated");
 }
 
 void handleValveOn() {
@@ -633,6 +737,7 @@ void handleValveOn() {
   }
 
   Valves.setState(index, true, ValveSource::MANUAL);
+  Mqtt.publishValveState(valveId);
   char d[32];
   snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
   Logger.Info(LogEvent::VALVE_ON, d);
@@ -653,6 +758,7 @@ void handleValveOff() {
 
   Timers.abort(valveId);
   Valves.setState(index, false, ValveSource::NONE);
+  Mqtt.publishValveState(valveId);
   char d[32];
   snprintf(d, sizeof(d), "{\"valveId\":%d}", valveId);
   Logger.Info(LogEvent::VALVE_OFF, d);
@@ -665,6 +771,7 @@ void handleValvesAllOff() {
 
   Timers.abortAll();
   Valves.allOff();
+  Mqtt.publishAllValveStates();
   Logger.Info(LogEvent::VALVES_ALL_OFF);
   sendJsonResponse(200, "ok");
 }

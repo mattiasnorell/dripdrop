@@ -16,6 +16,7 @@
 #include "../stubs/stubs_valves.cpp"
 #include "../stubs/stubs_timers.cpp"
 #include "../stubs/stubs_modules.cpp"
+#include "../stubs/stubs_mqtt.cpp"
 #include "../../src/scenarios.cpp"
 
 extern void stub_setModuleReading(const char* uid, float value);
