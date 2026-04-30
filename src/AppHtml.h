@@ -2,7 +2,7 @@
  * DripDrop - Embedded HTML Template
  * 
  * This file contains the HTML template for the web interface.
- * It's stored in PROGMEM to save RAM on the ESP8266.
+ * It's stored in PROGMEM to save RAM on the ESP32.
  * 
  * To use this, uncomment the include in dripdrop.ino and
  * add a route handler that serves this content.
