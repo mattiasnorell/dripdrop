@@ -54,11 +54,6 @@ constexpr uint16_t HTTP_PORT = 80;
 // MQTT Configuration
 // =============================================================================
 
-// Set to true to enable MQTT client
-#ifndef MQTT_ENABLED
-  #define MQTT_ENABLED false
-#endif
-
 // MQTT broker address and port
 #ifndef MQTT_SERVER
   #define MQTT_SERVER ""

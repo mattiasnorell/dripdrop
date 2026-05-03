@@ -3,9 +3,6 @@
  */
 
 #include "mqtt.h"
-
-#if MQTT_ENABLED
-
 #include <ArduinoJson.h>
 #include "valves.h"
 #include "timers.h"
@@ -288,22 +285,3 @@ void MqttManager::publishEvent(const char* level, const char* event, const char*
 void MqttManager::buildTopicPrefix() {
   _topicPrefix = "dripdrop/" + deviceName;
 }
-
-#else // MQTT_ENABLED == false
-
-MqttManager Mqtt;
-
-void MqttManager::begin() {}
-void MqttManager::loop(unsigned long) {}
-void MqttManager::publishValveState(uint8_t) {}
-void MqttManager::publishAllValveStates() {}
-void MqttManager::publishSystemStatus() {}
-void MqttManager::publishSensorReading(const char*, float) {}
-bool MqttManager::isConnected() const { return false; }
-void MqttManager::setServer(const char* server, uint16_t port) { _server = server; _port = port; }
-void MqttManager::setCredentials(const char* user, const char* password) { _user = user; _password = password; }
-void MqttManager::setEnabled(bool enabled) { _enabled = enabled; }
-void MqttManager::disconnect() {}
-void MqttManager::publishEvent(const char*, const char*, const char*) {}
-
-#endif // MQTT_ENABLED

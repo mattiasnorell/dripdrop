@@ -5,20 +5,17 @@
  * Subscribes to command topics for remote valve and timer control.
  * Uses LWT for availability tracking (online/offline).
  *
- * Disabled at compile time by default (MQTT_ENABLED = false).
- * All public methods are safe to call when disabled — they become no-ops.
+ * Disabled by default at runtime (_enabled = false).
+ * Enable via setEnabled(true) or the GUI (POST /system/mqtt).
  */
 
 #ifndef DRIPDROP_MQTT_H
 #define DRIPDROP_MQTT_H
 
 #include <Arduino.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 #include "config.h"
-
-#if MQTT_ENABLED
-  #include <WiFi.h>
-  #include <PubSubClient.h>
-#endif
 
 // Log severity level constants
 namespace LogLevel
@@ -76,9 +73,8 @@ public:
   void disconnect();
 
 private:
-#if MQTT_ENABLED
   WiFiClient _wifiClient;
-  PubSubClient _mqttClient;
+  mutable PubSubClient _mqttClient;
 
   void reconnect(unsigned long now);
   void onMessage(char* topic, byte* payload, unsigned int length);
@@ -88,9 +84,8 @@ private:
 
   unsigned long _lastReconnectAttempt = 0;
   unsigned long _lastStatePublish = 0;
-#endif
 
-  bool _enabled = MQTT_ENABLED;
+  bool _enabled = false;
   String _server;
   uint16_t _port = MQTT_PORT;
   String _user;
