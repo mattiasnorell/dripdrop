@@ -9,28 +9,38 @@
 // Global instance
 TimerManager Timers;
 
-void TimerManager::begin() {
-  for (uint8_t i = 0; i < NUM_VALVES; i++) {
+void TimerManager::begin()
+{
+  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  {
     _timers[i].valveId = i + 1;
-    _timers[i].endTime = -1;  // Inactive
+    _timers[i].endTime = -1; // Inactive
   }
   DEBUG_PRINTLN(F("Timers initialized"));
 }
 
-void TimerManager::check(time_t currentTime) {
-  for (uint8_t i = 0; i < NUM_VALVES; i++) {
-    if (_timers[i].endTime < 0) continue;  // Inactive timer
-    
-    Valve* valve = Valves.getValve(i);
-    if (!valve) continue;
-    
-    if (_timers[i].endTime > currentTime) {
+void TimerManager::check(time_t currentTime)
+{
+  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  {
+    if (_timers[i].endTime < 0)
+      continue; // Inactive timer
+
+    Valve *valve = Valves.getValve(i);
+    if (!valve)
+      continue;
+
+    if (_timers[i].endTime > currentTime)
+    {
       // Timer still active - ensure valve is on
       // Accept both TIMER and SCENARIO as valid sources (scenario uses timer for auto-shutoff)
-      if (!valve->isOn) {
+      if (!valve->isOn)
+      {
         Valves.setState(i, true, ValveSource::TIMER);
       }
-    } else {
+    }
+    else
+    {
       // Timer expired - turn off valve
       uint8_t valveId = _timers[i].valveId;
       DEBUG_PRINTF("Timer expired for valve %d\n", valveId);
@@ -38,10 +48,11 @@ void TimerManager::check(time_t currentTime) {
 
       char det[32];
       snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
-      Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_EXPIRE, det);
+      Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_EXPIRE, det);
 
       // Only turn off if not manually controlled
-      if (!valve->isManuallyControlled()) {
+      if (!valve->isManuallyControlled())
+      {
         Valves.setState(i, false, ValveSource::NONE);
       }
       Mqtt.publishValveState(valveId);
@@ -49,91 +60,110 @@ void TimerManager::check(time_t currentTime) {
   }
 }
 
-bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds) {
+bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds)
+{
   int8_t index = Valves.findByValveId(valveId);
-  if (index < 0) {
+  if (index < 0)
+  {
     DEBUG_PRINTF("Timer start failed: invalid valveId %d\n", valveId);
     return false;
   }
-  
-  if (durationSeconds == 0 || durationSeconds > MAX_TIMER_DURATION_SEC) {
+
+  if (durationSeconds == 0 || durationSeconds > MAX_TIMER_DURATION_SEC)
+  {
     DEBUG_PRINTF("Timer start failed: invalid duration %lu\n", durationSeconds);
     return false;
   }
-  
+
   time_t now = time(nullptr);
   _timers[index].endTime = now + durationSeconds;
-  
+
   // Start the valve immediately
   Valves.setState(index, true, ValveSource::TIMER);
-  
+
   DEBUG_PRINTF("Timer started for valve %d: %lu seconds (ends at %ld)\n",
                valveId, durationSeconds, _timers[index].endTime);
 
   char det[64];
   snprintf(det, sizeof(det), "{\"valveId\":%d,\"duration\":%lu}", valveId, (unsigned long)durationSeconds);
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_START, det);
+  Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_START, det);
 
   return true;
 }
 
-bool TimerManager::abort(uint8_t valveId) {
+bool TimerManager::abort(uint8_t valveId)
+{
   int8_t index = Valves.findByValveId(valveId);
-  if (index < 0) {
+  if (index < 0)
+  {
     return false;
   }
-  
-  if (_timers[index].endTime < 0) {
-    return false;  // No timer to abort
+
+  if (_timers[index].endTime < 0)
+  {
+    return false; // No timer to abort
   }
-  
+
   _timers[index].endTime = -1;
 
-  Valve* valve = Valves.getValve(index);
-  if (valve && !valve->isManuallyControlled()) {
+  Valve *valve = Valves.getValve(index);
+  if (valve && !valve->isManuallyControlled())
+  {
     Valves.setState(index, false, ValveSource::NONE);
   }
-  
+
   DEBUG_PRINTF("Timer aborted for valve %d\n", valveId);
 
   char det[32];
   snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
-  Mqtt.publishEvent(LogLevel::INFO,LogEvent::TIMER_ABORT, det);
+  Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_ABORT, det);
 
   return true;
 }
 
-void TimerManager::abortAll() {
-  for (uint8_t i = 0; i < NUM_VALVES; i++) {
-    if (_timers[i].endTime >= 0) {
+void TimerManager::abortAll()
+{
+  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  {
+    if (_timers[i].endTime >= 0)
+    {
       abort(_timers[i].valveId);
     }
   }
 }
 
-Timer* TimerManager::get(uint8_t index) {
-  if (index >= NUM_VALVES) return nullptr;
+Timer *TimerManager::get(uint8_t index)
+{
+  if (index >= NUM_VALVES)
+    return nullptr;
   return &_timers[index];
 }
 
-const Timer* TimerManager::get(uint8_t index) const {
-  if (index >= NUM_VALVES) return nullptr;
+const Timer *TimerManager::get(uint8_t index) const
+{
+  if (index >= NUM_VALVES)
+    return nullptr;
   return &_timers[index];
 }
 
-bool TimerManager::isActive(uint8_t valveId, time_t currentTime) const {
+bool TimerManager::isActive(uint8_t valveId, time_t currentTime) const
+{
   int8_t index = Valves.findByValveId(valveId);
-  if (index < 0) return false;
+  if (index < 0)
+    return false;
   return _timers[index].isActive(currentTime);
 }
 
-uint32_t TimerManager::getRemainingSeconds(uint8_t valveId, time_t currentTime) const {
+uint32_t TimerManager::getRemainingSeconds(uint8_t valveId, time_t currentTime) const
+{
   int8_t index = Valves.findByValveId(valveId);
-  if (index < 0) return 0;
-  
-  if (!_timers[index].isActive(currentTime)) {
+  if (index < 0)
+    return 0;
+
+  if (!_timers[index].isActive(currentTime))
+  {
     return 0;
   }
-  
+
   return static_cast<uint32_t>(_timers[index].endTime - currentTime);
 }

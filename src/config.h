@@ -155,6 +155,13 @@ constexpr uint32_t MAX_TIMER_DURATION_SEC = 86400;
 // Maximum scenario action duration in seconds (default: 4 hours)
 constexpr uint16_t MAX_SCENARIO_DURATION_SEC = 14400;
 
+// callUrl action limits
+constexpr uint8_t  CALL_URL_QUEUE_SIZE      = 4;
+constexpr uint32_t CALL_URL_TIMEOUT_MS      = 8000;
+constexpr uint16_t CALL_URL_MAX_URL_LEN     = 256;
+constexpr uint16_t CALL_URL_MAX_HEADERS_LEN = 512;
+constexpr uint16_t CALL_URL_MAX_BODY_LEN    = 512;
+
 // =============================================================================
 // Sensor Configuration (I2C)
 // =============================================================================

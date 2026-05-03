@@ -204,6 +204,7 @@ void loop() {
   }
 
   Scenarios.maybeSave(now);
+  Scenarios.drainCallUrlQueue();
   Mqtt.loop(now);
   ElegantOTA.loop();
   esp_task_wdt_reset();

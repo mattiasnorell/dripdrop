@@ -8,6 +8,8 @@
 #include "modules.h"
 #include "mqtt.h"
 #include <LittleFS.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 ScenarioManager Scenarios;
 
@@ -140,22 +142,39 @@ const char* ScenarioManager::validate(const JsonObject& input) const {
   }
 
   for (JsonObject action : actions) {
-    if (!action["valveId"].is<int>()) {
-      return "Action missing 'valveId'";
-    }
-    int valveId = action["valveId"];
-    if (!Valves.isValidId(valveId)) {
-      return "Invalid valveId in action";
-    }
-    const char* state = action["state"];
-    if (!state || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
-      return "Action requires 'state' (on or off)";
-    }
-    if (strcmp(state, "on") == 0) {
-      if (!action["duration"].is<int>() || action["duration"].as<int>() <= 0) {
-        return "Action with state 'on' requires positive 'duration'";
+    const char* type = action["type"] | "valve";  // default for backward compat
+
+    if (strcmp(type, "valve") == 0) {
+      if (!action["valveId"].is<int>()) {
+        return "Action missing 'valveId'";
+      }
+      int valveId = action["valveId"];
+      if (!Valves.isValidId(valveId)) {
+        return "Invalid valveId in action";
+      }
+      const char* state = action["state"];
+      if (!state || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
+        return "Action requires 'state' (on or off)";
+      }
+      if (strcmp(state, "on") == 0) {
+        if (!action["duration"].is<int>() || action["duration"].as<int>() < 0) {
+          return "Action with state 'on' requires non-negative 'duration'";
+        }
+      }
+    } else if (strcmp(type, "callUrl") == 0) {
+      const char* url = action["url"] | "";
+      if (url[0] == '\0') {
+        return "callUrl action requires 'url'";
+      }
+      if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+        return "callUrl 'url' must start with http:// or https://";
+      }
+      const char* method = action["method"] | "";
+      if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0) {
+        return "callUrl action requires 'method' (GET or POST)";
       }
     }
+    // Unknown types pass validation — preserved for round-trip
   }
 
   return nullptr;
@@ -398,41 +417,139 @@ bool ScenarioManager::evaluateConditions(const JsonArray& conditions, const stru
 
 void ScenarioManager::executeActions(const JsonArray& actions, time_t now) {
   for (JsonObject action : actions) {
-    uint8_t valveId = action["valveId"];
-    const char* state = action["state"];
+    const char* type = action["type"] | "valve";  // default for backward compat
 
-    int8_t index = Valves.findByValveId(valveId);
-    if (index < 0) continue;
+    if (strcmp(type, "valve") == 0) {
+      uint8_t valveId = action["valveId"];
+      const char* state = action["state"];
 
-    const Valve* valve = Valves.getValve(index);
-    if (!valve) continue;
+      int8_t index = Valves.findByValveId(valveId);
+      if (index < 0) continue;
 
-    // Respect priority: Manual > Timer > Scenario
-    // A valve already in SCENARIO source is re-assignable by another scenario
-    if (valve->isManuallyControlled() || valve->isTimerControlled()) {
-      DEBUG_SCENARIO("Skipping valve %d — overridden by %s\n",
-                     valveId,
-                     valve->isManuallyControlled() ? "manual" : "timer");
-      continue;
-    }
+      const Valve* valve = Valves.getValve(index);
+      if (!valve) continue;
 
-    if (strcmp(state, "on") == 0) {
-      int duration = action["duration"];  // in seconds
-      
-      if (duration > MAX_SCENARIO_DURATION_SEC) {
-        duration = MAX_SCENARIO_DURATION_SEC;
+      // Respect priority: Manual > Timer > Scenario
+      // A valve already in SCENARIO source is re-assignable by another scenario
+      if (valve->isManuallyControlled() || valve->isTimerControlled()) {
+        DEBUG_SCENARIO("Skipping valve %d — overridden by %s\n",
+                       valveId,
+                       valve->isManuallyControlled() ? "manual" : "timer");
+        continue;
       }
-      // Use the timer system for automatic shutoff, then correct the source
-      Timers.start(valveId, duration);
-      Valves.setState(index, true, ValveSource::SCENARIO);
-      Mqtt.publishValveState(valveId);
-      DEBUG_SCENARIO("Valve %d ON for %d min\n", valveId, duration);
+
+      if (strcmp(state, "on") == 0) {
+        int duration = action["duration"];
+        if (duration > MAX_SCENARIO_DURATION_SEC) {
+          duration = MAX_SCENARIO_DURATION_SEC;
+        }
+        if (duration > 0) {
+          Timers.start(valveId, duration);
+        }
+        Valves.setState(index, true, ValveSource::SCENARIO);
+        Mqtt.publishValveState(valveId);
+        DEBUG_SCENARIO("Valve %d ON for %d sec\n", valveId, duration);
+      } else {
+        // state == "off"
+        Timers.abort(valveId);
+        Valves.setState(index, false, ValveSource::NONE);
+        Mqtt.publishValveState(valveId);
+        DEBUG_SCENARIO("Valve %d OFF\n", valveId);
+      }
+
+    } else if (strcmp(type, "callUrl") == 0) {
+      if (_callUrlCount >= CALL_URL_QUEUE_SIZE) {
+        DEBUG_SCENARIO("callUrl queue full, dropping request\n");
+        continue;
+      }
+      CallUrlRequest& req = _callUrlQueue[_callUrlCount++];
+      const char* url     = action["url"]     | "";
+      const char* method  = action["method"]  | "GET";
+      const char* headers = action["headers"] | "";
+      const char* body    = action["body"]    | "";
+      req.url.reserve(CALL_URL_MAX_URL_LEN);
+      req.url = url;
+      req.url = req.url.substring(0, CALL_URL_MAX_URL_LEN);
+      req.method = method;
+      req.headers = String(headers).substring(0, CALL_URL_MAX_HEADERS_LEN);
+      req.body    = String(body).substring(0, CALL_URL_MAX_BODY_LEN);
+
     } else {
-      // state == "off"
-      Timers.abort(valveId);
-      Valves.setState(index, false, ValveSource::NONE);
-      Mqtt.publishValveState(valveId);
-      DEBUG_SCENARIO("Valve %d OFF\n", valveId);
+      DEBUG_SCENARIO("Unknown action type '%s', skipping\n", type);
     }
   }
+}
+
+// =============================================================================
+// callUrl Execution
+// =============================================================================
+
+static void applyParsedHeaders(HTTPClient& http, const String& raw) {
+  int start = 0;
+  int len = raw.length();
+  while (start < len) {
+    int nl = raw.indexOf('\n', start);
+    String line = (nl < 0) ? raw.substring(start) : raw.substring(start, nl);
+    start = (nl < 0) ? len : nl + 1;
+
+    line.trim();
+    if (line.length() == 0) continue;
+
+    int colon = line.indexOf(':');
+    if (colon <= 0) continue;   // no colon or colon at position 0 — malformed
+
+    String key = line.substring(0, colon);
+    String val = line.substring(colon + 1);
+    key.trim();
+    val.trim();
+    if (key.length() > 0) {
+      http.addHeader(key, val);
+    }
+  }
+}
+
+static void executeCallUrl(const CallUrlRequest& req) {
+  unsigned long t0 = millis();
+  HTTPClient http;
+
+  if (req.url.startsWith("https://")) {
+    // HTTPS: cert verification skipped — standard for embedded devices
+    WiFiClientSecure* secureClient = new WiFiClientSecure;
+    secureClient->setInsecure();
+    http.begin(*secureClient, req.url);
+    http.setTimeout(CALL_URL_TIMEOUT_MS);
+    applyParsedHeaders(http, req.headers);
+
+    int code;
+    if (req.method == "POST") {
+      http.addHeader("Content-Length", String(req.body.length()));
+      code = http.POST(req.body);
+    } else {
+      code = http.GET();
+    }
+    DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
+    http.end();
+    delete secureClient;
+  } else {
+    http.begin(req.url);
+    http.setTimeout(CALL_URL_TIMEOUT_MS);
+    applyParsedHeaders(http, req.headers);
+
+    int code;
+    if (req.method == "POST") {
+      http.addHeader("Content-Length", String(req.body.length()));
+      code = http.POST(req.body);
+    } else {
+      code = http.GET();
+    }
+    DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
+    http.end();
+  }
+}
+
+void ScenarioManager::drainCallUrlQueue() {
+  for (uint8_t i = 0; i < _callUrlCount; i++) {
+    executeCallUrl(_callUrlQueue[i]);
+  }
+  _callUrlCount = 0;
 }
