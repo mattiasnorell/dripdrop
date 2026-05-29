@@ -16,15 +16,6 @@
 // WiFi Configuration
 // =============================================================================
 
-// Primary WiFi network credentials
-#ifndef WIFI_SSID
-  #define WIFI_SSID "WajFaj"
-#endif
-
-#ifndef WIFI_PASSWORD
-  #define WIFI_PASSWORD "7357_m4n0"
-#endif
-
 // Access Point (fallback) credentials
 #ifndef AP_SSID
   #define AP_SSID "DripDrop"
@@ -217,7 +208,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.0.7"
+#define FIRMWARE_VERSION "4.0.8"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

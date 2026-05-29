@@ -21,6 +21,8 @@ extern bool apMode;
 extern std::atomic<bool> ntpSynced;
 extern unsigned long lastNtpSync;
 extern String deviceName;
+extern String wifiSsid;
+extern String wifiPassword;
 
 // Settings persistence (implemented in dripdrop.cpp)
 void saveSettings();

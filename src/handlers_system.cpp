@@ -173,6 +173,56 @@ void handleSystemMqttGet() {
   server.send(200, "application/json", output);
 }
 
+void handleSystemWifiGet() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (apMode) {
+    doc["ssid"] = nullptr;
+    doc["connected"] = false;
+    doc["apMode"] = true;
+  } else {
+    doc["ssid"] = WiFi.SSID();
+    doc["connected"] = WiFi.status() == WL_CONNECTED;
+    doc["apMode"] = false;
+  }
+
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleSystemWifiPost() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  JsonDocument doc;
+  if (!parseJsonBody(doc)) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (!doc["ssid"].is<const char*>() || strlen(doc["ssid"].as<const char*>()) == 0) {
+    sendJsonError(400, "ssid (string) is required");
+    return;
+  }
+
+  wifiSsid = doc["ssid"].as<const char*>();
+  if (doc["password"].is<const char*>()) {
+    wifiPassword = doc["password"].as<const char*>();
+  }
+
+  saveSettings();
+
+  apMode = false;
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+
+  sendJsonResponse(200, "ok");
+}
+
 void handleSystemMqttPost() {
   sendCorsHeaders();
   if (!checkApiAuth()) return;

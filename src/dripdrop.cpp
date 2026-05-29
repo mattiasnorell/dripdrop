@@ -18,7 +18,7 @@
  *
  * Requires Arduino ESP32 core v2.x+ (for UriBraces path parameter support).
  *
- * @version 4.0.7
+ * @version 4.0.8
  */
 
 #include <Arduino.h>
@@ -59,6 +59,8 @@ unsigned long lastNtpSync = 0;
 std::atomic<bool> ntpSynced{ false };
 bool apMode = false;
 String deviceName = "dripdrop";
+String wifiSsid = "";
+String wifiPassword = "";
 
 // =============================================================================
 // Forward Declarations — Setup & Loop Helpers
@@ -85,6 +87,8 @@ void handleSystemNameGet();
 void handleSystemNamePost();
 void handleSystemMqttGet();
 void handleSystemMqttPost();
+void handleSystemWifiGet();
+void handleSystemWifiPost();
 void handleValveList();
 void handleValveState();
 void handleValveUpdate();
@@ -215,7 +219,7 @@ void loop() {
 // =============================================================================
 
 void setupWiFi() {
-  if (strlen(WIFI_SSID) == 0) {
+  if (wifiSsid.length() == 0) {
     DD_DEBUG_WIFI("No WiFi credentials configured, starting AP mode\n");
     apMode = true;
     WiFi.mode(WIFI_AP);
@@ -225,12 +229,12 @@ void setupWiFi() {
     return;
   }
 
-  DD_DEBUG_WIFI("Connecting to %s", WIFI_SSID);
+  DD_DEBUG_WIFI("Connecting to %s", wifiSsid.c_str());
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
 
   uint8_t attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < WIFI_CONNECT_TIMEOUT_SEC) {
@@ -306,6 +310,9 @@ void loadSettings() {
     if (doc["mqttEnabled"].is<bool>())        Mqtt.setEnabled(doc["mqttEnabled"].as<bool>());
     if (doc["mqttServer"].is<const char*>()) Mqtt.setServer(doc["mqttServer"].as<const char*>(), doc["mqttPort"] | MQTT_PORT);
     if (doc["mqttUser"].is<const char*>())   Mqtt.setCredentials(doc["mqttUser"].as<const char*>(), doc["mqttPassword"] | "");
+
+    if (doc["wifiSsid"].is<const char*>())     wifiSsid = doc["wifiSsid"].as<const char*>();
+    if (doc["wifiPassword"].is<const char*>()) wifiPassword = doc["wifiPassword"].as<const char*>();
   }
   file.close();
   DEBUG_PRINTF("Settings loaded (name=%s)\n", deviceName.c_str());
@@ -324,6 +331,10 @@ void saveSettings() {
     doc["mqttPort"]     = Mqtt.getPort();
     doc["mqttUser"]     = Mqtt.getUser();
   }
+
+  if (wifiSsid.length() > 0)     doc["wifiSsid"]     = wifiSsid;
+  if (wifiPassword.length() > 0) doc["wifiPassword"] = wifiPassword;
+
   serializeJson(doc, file);
   file.close();
 }
@@ -346,6 +357,8 @@ void setupRoutes() {
   server.on("/system/name", HTTP_POST, handleSystemNamePost);
   server.on("/system/mqtt", HTTP_GET, handleSystemMqttGet);
   server.on("/system/mqtt", HTTP_POST, handleSystemMqttPost);
+  server.on("/system/wifi", HTTP_GET, handleSystemWifiGet);
+  server.on("/system/wifi", HTTP_POST, handleSystemWifiPost);
 
   // Valves
   server.on("/valves", HTTP_GET, handleValveList);
