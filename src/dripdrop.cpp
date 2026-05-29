@@ -24,7 +24,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <ElegantOTA.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <time.h>
@@ -76,7 +75,13 @@ void checkWiFiConnection();
 
 // Forward Declarations — HTTP Handlers
 void handleRoot();
-void handleNotFound();
+void handleStaticFile();
+void handleFsUploadComplete();
+void handleFsUpload();
+void handleOtaUploadComplete();
+void handleOtaUpload();
+void handleOtaFsUploadComplete();
+void handleOtaFsUpload();
 void handleSystemStatus();
 void handleSystemIp();
 void handleSystemPing();
@@ -140,19 +145,6 @@ void setup() {
   setupNtp();
 
   setupRoutes();
-  ElegantOTA.begin(&server);
-  ElegantOTA.onStart([]() {
-    esp_task_wdt_delete(NULL);  // remove this task from watchdog during flash
-    DEBUG_PRINTLN(F("[OTA] Update started"));
-  });
-  ElegantOTA.onEnd([](bool success) {
-    if (success) {
-      DEBUG_PRINTLN(F("[OTA] Update complete, rebooting"));
-    } else {
-      esp_task_wdt_add(NULL);   // re-add to watchdog if update failed (no reboot)
-      DEBUG_PRINTLN(F("[OTA] Update failed"));
-    }
-  });
 
   const char* headersToCollect[] = { API_KEY_HEADER };
   server.collectHeaders(headersToCollect, 1);
@@ -210,7 +202,6 @@ void loop() {
   Scenarios.maybeSave(now);
   Scenarios.drainCallUrlQueue();
   Mqtt.loop(now);
-  ElegantOTA.loop();
   esp_task_wdt_reset();
 }
 
@@ -259,6 +250,7 @@ void setupWiFi() {
     DD_DEBUG_WIFI("AP started: %s\n", AP_SSID);
   }
 }
+
 
 void setupMdns() {
   if (MDNS.begin(MDNS_HOSTNAME)) {
@@ -388,6 +380,13 @@ void setupRoutes() {
   server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
   server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
 
-  // 404 / OPTIONS preflight catch-all
-  server.onNotFound(handleNotFound);
+  // Filesystem upload (used by make ota-fs to update webapp files)
+  server.on("/fs/upload", HTTP_POST, handleFsUploadComplete, handleFsUpload);
+
+  // OTA updates (used by make ota-firmware / ota-fs)
+  server.on("/ota/upload",    HTTP_POST, handleOtaUploadComplete,   handleOtaUpload);
+  server.on("/ota/upload-fs", HTTP_POST, handleOtaFsUploadComplete, handleOtaFsUpload);
+
+  // Static file serving + SPA fallback (registered last)
+  server.onNotFound(handleStaticFile);
 }

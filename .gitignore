@@ -3,3 +3,15 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Local environment (contains git repo URL for webapp)
+.env
+
+# Docker build artifacts
+build/
+
+# LittleFS runtime data files (written by firmware, not source)
+data/settings.json
+data/scenarios.json
+data/valve_names.json
+data/modules.json

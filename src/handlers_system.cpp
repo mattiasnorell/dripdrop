@@ -2,28 +2,14 @@
  * DripDrop - System & MQTT HTTP Handlers
  *
  * Handles: /, /system/status, /system/ip, /system/ping, /system/time,
- *          /system/reboot, /system/name, /system/mqtt, and 404/OPTIONS.
+ *          /system/reboot, /system/name, /system/mqtt.
  */
 
 #include "api_utils.h"
 #include "config.h"
 #include "mqtt.h"
-#include "AppHtml.h"
 #include <WiFi.h>
 #include <time.h>
-
-void handleRoot() {
-  server.send_P(200, "text/html", APP_HTML);
-}
-
-void handleNotFound() {
-  sendCorsHeaders();
-  if (server.method() == HTTP_OPTIONS) {
-    server.send(204);
-    return;
-  }
-  sendJsonError(404, "Not Found");
-}
 
 void handleSystemStatus() {
   sendCorsHeaders();

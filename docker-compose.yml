@@ -1,0 +1,17 @@
+services:
+  build:
+    build:
+      context: .
+      target: firmware
+      args:
+        WEBAPP_REPO: "${WEBAPP_REPO}"
+    volumes:
+      - ./build:/output
+    command: >
+      sh -c "
+        mkdir -p /output/webapp &&
+        cp .pio/build/esp32dev/firmware.bin /output/firmware.bin &&
+        cp .pio/build/esp32dev/littlefs.bin /output/littlefs.bin &&
+        cp -r data/. /output/webapp/ &&
+        echo 'Build complete. Artifacts in ./build/'
+      "
