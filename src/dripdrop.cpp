@@ -76,6 +76,9 @@ void checkWiFiConnection();
 // Forward Declarations — HTTP Handlers
 void handleRoot();
 void handleStaticFile();
+void handleFsInfo();
+void handleFsList();
+void handleFsDirDelete();
 void handleFsUploadComplete();
 void handleFsUpload();
 void handleOtaUploadComplete();
@@ -380,7 +383,12 @@ void setupRoutes() {
   server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
   server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
 
-  // Filesystem upload (used by make ota-fs to update webapp files)
+  // Filesystem inspection
+  server.on("/fs/info", HTTP_GET, handleFsInfo);
+  server.on("/fs/list", HTTP_GET, handleFsList);
+  // Filesystem: clear a directory (used by make ota-webapp before re-upload)
+  server.on("/fs/dir", HTTP_DELETE, handleFsDirDelete);
+  // Filesystem: upload a single file (used by make ota-webapp)
   server.on("/fs/upload", HTTP_POST, handleFsUploadComplete, handleFsUpload);
 
   // OTA updates (used by make ota-firmware / ota-fs)

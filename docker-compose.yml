@@ -12,6 +12,6 @@ services:
         mkdir -p /output/webapp &&
         cp .pio/build/esp32dev/firmware.bin /output/firmware.bin &&
         cp .pio/build/esp32dev/littlefs.bin /output/littlefs.bin &&
-        cp -r data/. /output/webapp/ &&
+        cp -r data/webapp/. /output/webapp/ &&
         echo 'Build complete. Artifacts in ./build/'
       "

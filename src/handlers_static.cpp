@@ -21,10 +21,14 @@ static String getContentType(const String& path) {
   return "application/octet-stream";
 }
 
+static constexpr const char* WEBAPP_DIR = "/webapp";
+
 // Try .gz variant first, then uncompressed. Returns true if the file was sent.
+// Files are stored under WEBAPP_DIR on LittleFS; path is the request URI.
 static bool serveFile(const String& path) {
-  String gzPath = path + ".gz";
-  if (LittleFS.exists(gzPath)) {
+  String fsPath = String(WEBAPP_DIR) + path;
+  String gzPath = fsPath + ".gz";
+  /*if (LittleFS.exists(gzPath)) {
     File f = LittleFS.open(gzPath, "r");
     if (f) {
       server.sendHeader("Content-Encoding", "gzip");
@@ -34,9 +38,9 @@ static bool serveFile(const String& path) {
       f.close();
       return true;
     }
-  }
-  if (LittleFS.exists(path)) {
-    File f = LittleFS.open(path, "r");
+  }*/
+  if (LittleFS.exists(fsPath)) {
+    File f = LittleFS.open(fsPath, "r");
     if (f) {
       server.sendHeader("Cache-Control",
         path == "/index.html" ? "no-cache" : "public, max-age=31536000, immutable");

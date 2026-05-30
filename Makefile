@@ -5,11 +5,11 @@ DEVICE_IPS ?= 192.168.0.86
 BUILD_DIR   = build
 PIO        ?= $(shell command -v pio 2>/dev/null || echo ~/.platformio/penv/bin/pio)
 
-.PHONY: build ota-firmware ota-fs ota flash flash-all clean
+.PHONY: build ota-firmware ota-fs ota-webapp ota flash flash-all clean
 
 build:
 	@mkdir -p $(BUILD_DIR)
-	docker compose run --rm build
+	docker compose run --rm --build build
 
 # OTA: push firmware binary over WiFi
 ota-firmware: build
@@ -29,8 +29,23 @@ ota-fs: build
 	    --progress-bar | cat; \
 	done
 
+# OTA: clear /webapp dir then upload individual files (preserves config files on the device)
+ota-webapp: build
+	@for ip in $(DEVICE_IPS); do \
+	  echo "Clearing /webapp on $$ip..."; \
+	  curl -s -X DELETE "http://$$ip/fs/dir?path=/webapp"; \
+	  echo "Uploading webapp files to $$ip..."; \
+	  find $(BUILD_DIR)/webapp -type f | while read file; do \
+	    relpath="/webapp/$${file#$(BUILD_DIR)/webapp/}"; \
+	    echo "  $$relpath"; \
+	    curl -s -X POST "http://$$ip/fs/upload?path=$$relpath" \
+	      -F "file=@$$file"; \
+	  done; \
+	  echo "Done $$ip"; \
+	done
+
 # Full OTA: update dashboard then firmware (firmware reboots device)
-ota: ota-fs ota-firmware
+ota: ota-webapp ota-firmware
 
 # First-time USB flash: firmware only
 flash: build

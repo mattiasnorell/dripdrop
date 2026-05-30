@@ -22,8 +22,8 @@ RUN pio pkg install -e esp32dev
 COPY src/ ./src/
 COPY data/ ./data/
 
-# Overlay React build output into data/ for LittleFS packaging
-COPY --from=webapp /webapp/dist/ ./data/
+# Overlay React build output into data/webapp/ for LittleFS packaging
+COPY --from=webapp /webapp/dist/ ./data/webapp/
 
 # Build firmware binary
 RUN pio run -e esp32dev
