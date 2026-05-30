@@ -42,25 +42,73 @@ Pins can be changed in `src/config.h`. Avoid strapping pins (0, 2, 5, 12, 15) an
 ```
 dripdrop/
 ├── src/
-│   ├── dripdrop.cpp    # Main entry point — setup, loop, HTTP handlers
-│   ├── config.h        # Configuration constants and defaults
-│   ├── types.h         # Type definitions, structs, enums
-│   ├── valves.cpp/h    # ValveController — GPIO control, state tracking
-│   ├── timers.cpp/h    # TimerManager — one-shot timed valve activation
-│   ├── scenarios.cpp/h # ScenarioManager — condition/action automation
-│   ├── modules.cpp/h   # ModuleManager — I²C sensor module discovery and readings
-│   ├── mqtt.cpp/h      # MQTT — telemetry publishing and remote control
-│   └── AppHtml.h       # Embedded web UI
+│   ├── dripdrop.cpp        # Main entry point — setup, loop, route registration
+│   ├── config.h            # Configuration constants and defaults
+│   ├── types.h             # Type definitions, structs, enums
+│   ├── valves.cpp/h        # ValveController — GPIO control, state tracking
+│   ├── timers.cpp/h        # TimerManager — one-shot timed valve activation
+│   ├── scenarios.cpp/h     # ScenarioManager — condition/action automation
+│   ├── modules.cpp/h       # ModuleManager — I²C sensor module discovery and readings
+│   ├── mqtt.cpp/h          # MQTT — telemetry publishing and remote control
+│   ├── handlers_system.cpp # /system/* endpoints
+│   ├── handlers_static.cpp # Static file serving and SPA fallback
+│   ├── handlers_fs.cpp     # /fs/* endpoints — file upload, directory ops, inspection
+│   ├── handlers_ota.cpp    # /ota/* endpoints — firmware and filesystem OTA
+│   └── AppHtml.h           # Embedded provisioning UI (served when no webapp present)
+├── data/                   # LittleFS data directory (webapp files placed here by Docker build)
 ├── test/
-│   ├── stubs/          # Arduino/hardware stubs for native testing
-│   ├── test_timers/    # TimerManager unit tests
-│   └── test_scenarios/ # ScenarioManager unit tests
+│   ├── stubs/              # Arduino/hardware stubs for native testing
+│   ├── test_timers/        # TimerManager unit tests
+│   └── test_scenarios/     # ScenarioManager unit tests
+├── Dockerfile              # Two-stage build: React webapp + ESP32 firmware
+├── docker-compose.yml      # Build service — outputs firmware.bin, littlefs.bin, webapp/
+├── Makefile                # Build and OTA deployment targets
 └── platformio.ini
 ```
+
+### LittleFS layout
+
+| Path | Contents | Written by |
+|------|----------|------------|
+| `/webapp/` | React dashboard (index.html, assets/) | `make ota-webapp` |
+| `/settings.json` | WiFi, MQTT, device name | `/system/*` API |
+| `/scenarios.json` | Automation scenarios | `/scenarios/*` API |
+| `/modules.json` | Registered I²C sensor modules | `/modules/*` API |
+| `/valve_names.json` | Custom valve display names | `/valves/*` API |
+
+Config files at the root are never touched by a webapp update.
 
 ## Installation
 
 ### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) — used for the standard build
+- `make` — orchestrates build and OTA deployment
+- A `.env` file in the project root (copy from `.env.example`):
+
+```env
+WEBAPP_REPO=https://github.com/mattiasnorell/dripdrop-control.git
+DEVICE_IPS=dripdrop.local
+```
+
+`DEVICE_IPS` can be a space-separated list of IPs or hostnames for multi-device OTA.
+
+### Makefile targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build firmware + LittleFS image + webapp files via Docker |
+| `make ota` | Full OTA: upload webapp files then firmware (device reboots) |
+| `make ota-webapp` | Upload webapp files only — clears `/webapp` on device first, config files untouched |
+| `make ota-firmware` | Upload firmware binary only |
+| `make ota-fs` | Replace entire LittleFS image (wipes all files including config — use with care) |
+| `make flash` | First-time USB flash: firmware only |
+| `make flash-all` | First-time USB flash: firmware + LittleFS (fresh device only) |
+| `make clean` | Remove `build/` directory |
+
+`make ota-webapp` is the recommended update path for day-to-day webapp deployments. It preserves all device configuration.
+
+### Build & Upload (without Docker)
 
 Install the PlatformIO CLI:
 ```
@@ -68,8 +116,6 @@ pip install platformio
 ```
 
 Or install the [PlatformIO VS Code extension](https://platformio.org/install/ide?install=vscode) — the project's `.vscode/` config is already set up for it.
-
-### Build & Upload
 
 Compile only:
 ```
@@ -372,6 +418,31 @@ MQTT settings body:
 | `.../valve/+/set` | `{"state": "on"}` / `{"state": "off"}` | Remote valve control |
 | `.../timer/+/set` | `{"duration": 300}` | Start a timer |
 
+### Filesystem
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/fs/info` | Filesystem capacity — total, used, free bytes |
+| GET | `/fs/list?path=<path>` | Recursive file listing for a path (default `/`) |
+| DELETE | `/fs/dir?path=<path>` | Recursively delete a directory |
+| POST | `/fs/upload?path=<path>` | Upload a single file to LittleFS |
+
+`/fs/info` response:
+```json
+{"total": 1441792, "used": 312400, "free": 1129392}
+```
+
+`/fs/list` response:
+```json
+{
+  "path": "/webapp",
+  "files": [
+    {"path": "/webapp/index.html", "size": 4321},
+    {"path": "/webapp/assets/main.abc.js", "size": 98765}
+  ]
+}
+```
+
 ### Authentication
 
 If `API_AUTH_ENABLED` is `true`, all requests must include:
@@ -381,7 +452,15 @@ X-API-Key: your-api-key
 
 ### OTA Updates
 
-Navigate to `http://dripdrop.local/update` to upload new firmware via the web browser.
+Use `make ota` for a full over-the-air update (webapp + firmware), or the individual targets for partial updates. For scripted/manual curl:
+
+```bash
+# Firmware only
+curl -X POST http://dripdrop.local/ota/upload -F "firmware=@build/firmware.bin"
+
+# Full LittleFS image (overwrites everything including config — use with care)
+curl -X POST http://dripdrop.local/ota/upload-fs -F "fs=@build/littlefs.bin"
+```
 
 ## Control Priority
 
