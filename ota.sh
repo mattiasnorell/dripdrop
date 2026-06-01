@@ -14,7 +14,8 @@ BUILD_DIR="build"
 
 # Build
 mkdir -p "$BUILD_DIR"
-docker compose run --build build
+docker compose build build
+docker compose run build
 
 # OTA webapp: clear /webapp dir then upload individual files
 for ip in $DEVICE_IPS; do
