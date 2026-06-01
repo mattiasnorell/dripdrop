@@ -14,7 +14,14 @@ BUILD_DIR="build"
 
 # Build
 mkdir -p "$BUILD_DIR"
-docker-compose run --rm --build build
+docker build --target firmware --build-arg "WEBAPP_REPO=${WEBAPP_REPO}" -t dripdrop-build .
+docker run --rm -v "$(pwd)/build:/output" dripdrop-build sh -c "
+  mkdir -p /output/webapp &&
+  cp .pio/build/esp32dev/firmware.bin /output/firmware.bin &&
+  cp .pio/build/esp32dev/littlefs.bin /output/littlefs.bin &&
+  cp -r data/webapp/. /output/webapp/ &&
+  echo 'Build complete. Artifacts in ./build/'
+"
 
 # OTA webapp: clear /webapp dir then upload individual files
 for ip in $DEVICE_IPS; do
