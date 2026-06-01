@@ -14,7 +14,7 @@ BUILD_DIR="build"
 
 # Build
 mkdir -p "$BUILD_DIR"
-docker build --target firmware --build-arg "WEBAPP_REPO=${WEBAPP_REPO}" -t dripdrop-build .
+docker build --build-arg "WEBAPP_REPO=${WEBAPP_REPO}" -t dripdrop-build .
 docker run --rm -v "$(pwd)/build:/output" dripdrop-build sh -c "
   mkdir -p /output/webapp &&
   cp .pio/build/esp32dev/firmware.bin /output/firmware.bin &&
