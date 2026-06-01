@@ -116,6 +116,8 @@ void handleModuleRegister();
 void handleModuleUpdate();
 void handleModuleRemove();
 void handleModuleReading();
+void handleConfigExport();
+void handleConfigImport();
 
 // =============================================================================
 // Setup
@@ -382,6 +384,10 @@ void setupRoutes() {
   server.on(UriBraces("/modules/{}/reading"), HTTP_GET, handleModuleReading);
   server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
   server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
+
+  // Config backup/restore
+  server.on("/config/export", HTTP_GET,  handleConfigExport);
+  server.on("/config/import", HTTP_POST, handleConfigImport);
 
   // Filesystem inspection
   server.on("/fs/info", HTTP_GET, handleFsInfo);
