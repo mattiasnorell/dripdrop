@@ -3,6 +3,8 @@
  */
 
 #include "valves.h"
+#include <LittleFS.h>
+#include <ArduinoJson.h>
 
 // Global instance
 ValveController Valves;
@@ -17,12 +19,15 @@ void ValveController::begin() {
     _valves[i].lastRunEnd = 0;
     _valves[i].source = ValveSource::NONE;
     _valves[i].isOn = false;
-    
+    _valves[i].customName[0] = '\0';
+
     pinMode(_valves[i].pin, OUTPUT);
     writeHardware(i, false);  // Ensure all valves are off
     
     DEBUG_VALVE("Valve %d initialized on pin %d\n", _valves[i].id, _valves[i].pin);
   }
+
+  loadNames();
 }
 
 bool ValveController::setState(uint8_t index, bool on, ValveSource source) {
@@ -33,8 +38,8 @@ bool ValveController::setState(uint8_t index, bool on, ValveSource source) {
   
   Valve& valve = _valves[index];
   
-  // Check if state is actually changing
-  if (valve.isOn == on && (on == false || valve.source == source)) {
+  // Check if state is actually changing (including source — e.g. SCENARIO→MANUAL matters)
+  if (valve.isOn == on && valve.source == source) {
     return false;  // No change needed
   }
   
@@ -63,7 +68,7 @@ bool ValveController::setState(uint8_t index, bool on, ValveSource source) {
 
 bool ValveController::getState(uint8_t index) const {
   if (!isValidIndex(index)) return false;
-  return readHardware(index);
+  return _valves[index].isOn;  // Use cache; hardware is only written by this firmware
 }
 
 Valve* ValveController::getValve(uint8_t index) {
@@ -116,12 +121,63 @@ void ValveController::writeHardware(uint8_t index, bool on) {
 
 bool ValveController::readHardware(uint8_t index) const {
   if (!isValidIndex(index)) return false;
-  
+
   uint8_t level = digitalRead(_valves[index].pin);
-  
+
   if (VALVE_ACTIVE_HIGH) {
     return level == HIGH;
   } else {
     return level == LOW;
   }
+}
+
+bool ValveController::setCustomName(uint8_t index, const char* name) {
+  if (!isValidIndex(index)) return false;
+
+  if (name && name[0] != '\0') {
+    strlcpy(_valves[index].customName, name, sizeof(_valves[index].customName));
+  } else {
+    _valves[index].customName[0] = '\0';
+  }
+
+  saveNames();
+  return true;
+}
+
+void ValveController::loadNames() {
+  File file = LittleFS.open(VALVE_NAMES_FILE, "r");
+  if (!file) return;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, file) != DeserializationError::Ok) {
+    file.close();
+    return;
+  }
+  file.close();
+
+  for (uint8_t i = 0; i < NUM_VALVES; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "%d", _valves[i].id);
+    if (doc[key].is<const char*>()) {
+      strlcpy(_valves[i].customName, doc[key].as<const char*>(), sizeof(_valves[i].customName));
+      DEBUG_VALVE("Valve %d name: %s\n", _valves[i].id, _valves[i].customName);
+    }
+  }
+}
+
+void ValveController::saveNames() {
+  File file = LittleFS.open(VALVE_NAMES_FILE, "w");
+  if (!file) return;
+
+  JsonDocument doc;
+  for (uint8_t i = 0; i < NUM_VALVES; i++) {
+    if (_valves[i].customName[0] != '\0') {
+      char key[4];
+      snprintf(key, sizeof(key), "%d", _valves[i].id);
+      doc[key] = _valves[i].customName;
+    }
+  }
+
+  serializeJson(doc, file);
+  file.close();
 }

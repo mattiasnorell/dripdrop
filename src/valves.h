@@ -79,6 +79,14 @@ public:
    */
   constexpr uint8_t count() const { return NUM_VALVES; }
 
+  /**
+   * Set a custom name for a valve and persist to flash
+   * @param index Valve index (0-based)
+   * @param name Custom name (max 31 chars), nullptr or "" to clear
+   * @return true if successful, false if invalid index
+   */
+  bool setCustomName(uint8_t index, const char* name);
+
 private:
   Valve _valves[NUM_VALVES];
   
@@ -86,11 +94,21 @@ private:
    * Write to valve hardware
    */
   void writeHardware(uint8_t index, bool on);
-  
+
   /**
    * Read from valve hardware
    */
   bool readHardware(uint8_t index) const;
+
+  /**
+   * Load custom names from LittleFS
+   */
+  void loadNames();
+
+  /**
+   * Save custom names to LittleFS
+   */
+  void saveNames();
 };
 
 // Global instance

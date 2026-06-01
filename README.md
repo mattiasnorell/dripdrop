@@ -1,73 +1,196 @@
 # DripDrop
 
-An ESP8266-based automated irrigation controller with WiFi connectivity, REST API, scheduling, and NTP time synchronization.
+An ESP32-based automated irrigation controller with WiFi connectivity, REST API, scenario-based automation, and NTP time synchronization.
 
 ## Features
 
 - Control up to 4 irrigation valves
-- Schedule-based automatic irrigation with second-level precision
+- Scenario-based if-this-then-that automation (time, day-of-week, sensor conditions)
 - One-time timer support for manual watering sessions
 - REST API for remote control and monitoring
-- NTP time synchronization (no manual time setting required)
+- I²C sensor module support (up to 8 modules; temperature, humidity, etc.)
+- MQTT pub/sub for telemetry, remote control, and event logging
+- NTP time synchronization with DST support
 - OTA firmware updates via web interface
 - mDNS discovery (access via `dripdrop.local`)
-- EEPROM persistence with data validation
-- Automatic WiFi reconnection
+- LittleFS persistence for scenarios, modules, and settings
+- Automatic WiFi reconnection with AP fallback
 - Watchdog timer for reliability
 - Optional API key authentication
 
 ## Hardware Requirements
 
-- ESP8266 board (NodeMCU, Wemos D1 Mini, or similar)
+- ESP32 board (ESP32 DevKit or compatible)
 - 4-channel relay module (active LOW recommended)
 - 12V/24V solenoid valves (depending on your irrigation system)
 - Power supply appropriate for your valves
+- (Optional) Arduino Nano-based I²C sensor modules on the I²C bus (SDA/SCL)
 
 ### Default Pin Configuration
 
-| Valve | GPIO Pin | NodeMCU Label |
-|-------|----------|---------------|
-| 1     | GPIO2    | D4            |
-| 2     | GPIO14   | D5            |
-| 3     | GPIO12   | D6            |
-| 4     | GPIO13   | D7            |
+| Valve | GPIO Pin |
+|-------|----------|
+| 1     | GPIO 25  |
+| 2     | GPIO 26  |
+| 3     | GPIO 27  |
+| 4     | GPIO 32  |
+
+Pins can be changed in `src/config.h`. Avoid strapping pins (0, 2, 5, 12, 15) and input-only pins (34–39).
+
+## Project Structure
+
+```
+dripdrop/
+├── src/
+│   ├── dripdrop.cpp        # Main entry point — setup, loop, route registration
+│   ├── config.h            # Configuration constants and defaults
+│   ├── types.h             # Type definitions, structs, enums
+│   ├── valves.cpp/h        # ValveController — GPIO control, state tracking
+│   ├── timers.cpp/h        # TimerManager — one-shot timed valve activation
+│   ├── scenarios.cpp/h     # ScenarioManager — condition/action automation
+│   ├── modules.cpp/h       # ModuleManager — I²C sensor module discovery and readings
+│   ├── mqtt.cpp/h          # MQTT — telemetry publishing and remote control
+│   ├── handlers_system.cpp # /system/* endpoints
+│   ├── handlers_static.cpp # Static file serving and SPA fallback
+│   ├── handlers_fs.cpp     # /fs/* endpoints — file upload, directory ops, inspection
+│   ├── handlers_ota.cpp    # /ota/* endpoints — firmware and filesystem OTA
+│   └── AppHtml.h           # Embedded provisioning UI (served when no webapp present)
+├── data/                   # LittleFS data directory (webapp files placed here by Docker build)
+├── test/
+│   ├── stubs/              # Arduino/hardware stubs for native testing
+│   ├── test_timers/        # TimerManager unit tests
+│   └── test_scenarios/     # ScenarioManager unit tests
+├── Dockerfile              # Two-stage build: React webapp + ESP32 firmware
+├── docker-compose.yml      # Build service — outputs firmware.bin, littlefs.bin, webapp/
+├── Makefile                # Build and OTA deployment targets
+└── platformio.ini
+```
+
+### LittleFS layout
+
+| Path | Contents | Written by |
+|------|----------|------------|
+| `/webapp/` | React dashboard (index.html, assets/) | `make ota-webapp` |
+| `/settings.json` | WiFi, MQTT, device name | `/system/*` API |
+| `/scenarios.json` | Automation scenarios | `/scenarios/*` API |
+| `/modules.json` | Registered I²C sensor modules | `/modules/*` API |
+| `/valve_names.json` | Custom valve display names | `/valves/*` API |
+
+Config files at the root are never touched by a webapp update.
 
 ## Installation
 
-### Arduino IDE
+### Prerequisites
 
-1. Install the ESP8266 board support:
-   - Open Arduino IDE preferences
-   - Add to "Additional Board Manager URLs": `http://arduino.esp8266.com/stable/package_esp8266com_index.json`
-   - Open Tools > Board > Board Manager, search for "ESP8266" and install
+- [Docker](https://docs.docker.com/get-docker/) — used for the standard build
+- `make` — orchestrates build and OTA deployment
+- A `.env` file in the project root (copy from `.env.example`):
 
-2. Install required libraries via Library Manager:
-   - ArduinoJson (v7.x)
-   - (ESP8266 core libraries are included with board support)
+```env
+WEBAPP_REPO=https://github.com/mattiasnorell/dripdrop-control.git
+DEVICE_IPS=dripdrop.local
+```
 
-3. Open `dripdrop/dripdrop.ino`
+`DEVICE_IPS` can be a space-separated list of IPs or hostnames for multi-device OTA.
 
-4. Configure your settings:
-   - Copy `config.h` to `config_local.h`
-   - Edit `config_local.h` with your WiFi credentials and timezone
+### Makefile targets
 
-5. Select your board (e.g., "NodeMCU 1.0") and upload
+| Target | Description |
+|--------|-------------|
+| `make build` | Build firmware + LittleFS image + webapp files via Docker |
+| `make ota` | Full OTA: upload webapp files then firmware (device reboots) |
+| `make ota-webapp` | Upload webapp files only — clears `/webapp` on device first, config files untouched |
+| `make ota-firmware` | Upload firmware binary only |
+| `make ota-fs` | Replace entire LittleFS image (wipes all files including config — use with care) |
+| `make flash` | First-time USB flash: firmware only |
+| `make flash-all` | First-time USB flash: firmware + LittleFS (fresh device only) |
+| `make clean` | Remove `build/` directory |
 
-### PlatformIO
+`make ota-webapp` is the recommended update path for day-to-day webapp deployments. It preserves all device configuration.
 
-```ini
-[env:nodemcu]
-platform = espressif8266
-board = nodemcuv2
-framework = arduino
-lib_deps = 
-    bblanchon/ArduinoJson@^7.0.0
-monitor_speed = 115200
+### Build & Upload (without Docker)
+
+Install the PlatformIO CLI:
+```
+pip install platformio
+```
+
+Or install the [PlatformIO VS Code extension](https://platformio.org/install/ide?install=vscode) — the project's `.vscode/` config is already set up for it.
+
+Compile only:
+```
+pio run -e esp32dev
+```
+
+Compile and upload to connected ESP32:
+```
+pio run -e esp32dev -t upload
+```
+
+Upload the LittleFS filesystem (required on first flash, or after clearing):
+```
+pio run -e esp32dev -t uploadfs
+```
+
+Monitor serial output:
+```
+pio device monitor -e esp32dev
+```
+
+### Flashing without PlatformIO
+
+To flash a pre-built binary using only `esptool.py`:
+
+**Step 1 — Produce a merged binary** (if you have the source and PlatformIO installed):
+```sh
+# Build firmware and filesystem
+pio run -e esp32dev
+pio run -e esp32dev -t buildfs
+
+# Merge into a single binary flashable at offset 0x0
+python3 ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --chip esp32 merge_bin -o dripdrop-merged.bin \
+  --flash_mode dio --flash_freq 40m --flash_size 4MB \
+  0x1000   .pio/build/esp32dev/bootloader.bin \
+  0x8000   .pio/build/esp32dev/partitions.bin \
+  0xe000   ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+  0x10000  .pio/build/esp32dev/firmware.bin \
+  0x290000 .pio/build/esp32dev/littlefs.bin
+```
+
+**Step 2 — Flash the merged binary:**
+```sh
+esptool.py --chip esp32 -p /dev/ttyUSB0 -b 921600 write_flash 0x0 dripdrop-merged.bin
+```
+Replace `/dev/ttyUSB0` with your port (macOS: `/dev/cu.usbserial-*`).
+
+The merged binary can also be flashed via the [ESP Web Flasher](https://espressif.github.io/esptool-js/) in a browser — no install required.
+
+**Flash offsets** (for flashing individual files separately):
+
+| File | Offset |
+|------|--------|
+| `bootloader.bin` | `0x1000` |
+| `partitions.bin` | `0x8000` |
+| `boot_app0.bin` | `0xe000` |
+| `firmware.bin` | `0x10000` |
+| `littlefs.bin` | `0x290000` |
+
+### Run Unit Tests (no hardware needed)
+
+```
+pio test -e native
+```
+
+Run a specific suite:
+```
+pio test -e native -f test_timers
+pio test -e native -f test_scenarios
 ```
 
 ## Configuration
 
-Edit `config.h` or create `config_local.h` (recommended, gitignored) with your settings:
+Edit `src/config.h` or create `src/config_local.h` (recommended — gitignored) to override defaults:
 
 ```cpp
 // WiFi credentials
@@ -83,12 +206,12 @@ Edit `config.h` or create `config_local.h` (recommended, gitignored) with your s
 #define API_KEY "your-secure-api-key"
 ```
 
-### Configuration Options
+### Configuration Reference
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `WIFI_SSID` | `""` | WiFi network name |
-| `WIFI_PASSWORD` | `""` | WiFi password |
+| `WIFI_SSID` | `"WajFaj"` | WiFi network name |
+| `WIFI_PASSWORD` | `"..."` | WiFi password |
 | `AP_SSID` | `"DripDrop"` | Access point name (fallback mode) |
 | `AP_PASSWORD` | `"dripdrop123"` | Access point password |
 | `TIMEZONE_OFFSET_SEC` | `3600` | Timezone offset from UTC in seconds |
@@ -96,256 +219,277 @@ Edit `config.h` or create `config_local.h` (recommended, gitignored) with your s
 | `API_AUTH_ENABLED` | `false` | Enable API key authentication |
 | `API_KEY` | `"change-me..."` | API key for authentication |
 | `NUM_VALVES` | `4` | Number of valves |
-| `MAX_SCHEDULES` | `32` | Maximum number of schedules |
+| `MAX_SCENARIOS` | `16` | Maximum number of scenarios |
 | `DEBUG_ENABLED` | `1` | Enable serial debug output |
 
 ## API Reference
 
 Base URL: `http://dripdrop.local` or `http://<device-ip>`
 
-All endpoints return JSON. POST endpoints accept JSON body with `Content-Type: application/json`.
+All endpoints return JSON. POST endpoints accept a JSON body with `Content-Type: application/json`.
 
-### System Endpoints
+### System
 
-#### GET /system/status
-Returns system diagnostics.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/system/status` | Firmware version, heap, WiFi, NTP state |
+| GET | `/system/ping` | Health check — returns `{"message":"pong"}` |
+| GET | `/system/ip` | Device IP as plain text |
+| GET | `/system/time` | Current time and NTP sync status |
+| POST | `/system/time` | Set time manually `{"unixTime": 1234567890}` |
+| GET | `/system/name` | Get device name |
+| POST | `/system/name` | Set device name `{"name": "garden"}` |
+| POST | `/system/reboot` | Reboot device |
 
-Response:
-```json
-{
-  "firmware": "2.1.0",
-  "uptime": 3600000,
-  "uptimeFormatted": "0d 1h 0m",
-  "freeHeap": 35000,
-  "wifiConnected": true,
-  "wifiRssi": -65,
-  "apMode": false,
-  "ntpSynced": true,
-  "currentTime": 1707840000,
-  "activeValves": 1,
-  "activeSchedules": 5
-}
-```
+### Valves
 
-#### GET /system/time
-Returns current time information.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/valves` | List all valves with state and timer info |
+| GET | `/valves/{id}/state` | State of a specific valve |
+| POST | `/valves/{id}` | Update valve settings — body: `{"customName": "Front Garden"}` |
+| POST | `/valves/{id}/on` | Turn valve on manually |
+| POST | `/valves/{id}/off` | Turn valve off, cancel its timer |
+| POST | `/valves/off` | Turn all valves off, cancel all timers |
 
-#### GET /system/ip
-Returns device IP address as plain text.
-
-#### GET /system/ping
-Health check endpoint. Returns `{"message": "pong"}`.
-
-#### POST /system/reboot
-Reboots the device.
-
-### Valve Endpoints
-
-#### GET /valves
-Returns list of all valves with their current state.
-
-Response:
+Valve list response:
 ```json
 [
   {
     "id": 1,
+    "customName": "Front Garden",
     "isOn": true,
-    "source": 2,
+    "source": 3,
     "lastRunStart": 1707840000,
-    "lastRunEnd": 1707839000,
-    "timerRemaining": 120
+    "lastRunEnd": 0,
+    "timerRemaining": 240
   }
 ]
 ```
+Source values: `0`=NONE, `1`=SCENARIO, `2`=TIMER, `3`=MANUAL
 
-Source values: 0=NONE, 1=SCHEDULE, 2=TIMER, 3=MANUAL
+Pass `null` or an empty string for `customName` to clear it.
 
-#### GET /valve/state?valveId=1
-Returns state of a specific valve.
+### Timers
 
-#### POST /valve/state/on
-Turn a valve on manually.
+One-time timed valve activation.
 
-Request:
-```json
-{"valveId": 1}
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/timers` | List all active timers |
+| POST | `/valves/{id}/timer` | Start a timer — body: `{"duration": 300}` |
+| DELETE | `/valves/{id}/timer` | Cancel a timer |
 
-#### POST /valve/state/off
-Turn a valve off.
-
-Request:
-```json
-{"valveId": 1}
-```
-
-#### POST /valves/off
-Turn all valves off and cancel all timers.
-
-### Timer Endpoints
-
-Timers provide one-time valve activation for a specified duration.
-
-#### GET /timer
-Returns all timer states.
-
-#### POST /timer
-Start a timer for a valve.
-
-Request:
-```json
-{
-  "valveId": 1,
-  "duration": 300
-}
-```
 Duration is in seconds (max 86400 = 24 hours).
 
-#### POST /timer/abort
-Cancel an active timer.
+### Scenarios
 
-Request:
+Scenarios fire valve actions when all conditions are met (AND logic). They use edge detection — a scenario fires once when conditions become true, and resets when they become false.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/scenarios` | List all scenarios |
+| POST | `/scenarios` | Add a scenario |
+| POST | `/scenarios/{id}` | Update a scenario |
+| DELETE | `/scenarios/{id}` | Delete a scenario |
+
+**Condition types:**
+
+`time` — fires at a specific time each day:
 ```json
-{"valveId": 1}
+{"type": "time", "hour": 6, "minute": 30}
 ```
 
-### Schedule Endpoints
+`dayOfWeek` — fires only on selected days (AND with other conditions):
+```json
+{"type": "dayOfWeek", "days": [false, true, true, true, true, true, false]}
+```
+Days array: `[Sun, Mon, Tue, Wed, Thu, Fri, Sat]`
 
-Schedules provide recurring valve activation based on time and day of week.
+`sensorValue` — fires based on a sensor reading:
+```json
+{"type": "sensorValue", "sensorId": "temp1", "operator": "gt", "value": 25}
+```
+Operators: `gt`, `lt`, `eq`
 
-#### GET /schedule/list
-Returns all schedules.
+**Action fields:**
 
-Response:
+```json
+{"valveId": 1, "state": "on", "duration": 600}
+```
+`duration` (seconds) is required when `state` is `"on"`. Not needed for `"off"`.
+
+**Full example:**
+```json
+{
+  "name": "Morning watering on weekdays",
+  "conditions": [
+    {"type": "time", "hour": 6, "minute": 30},
+    {"type": "dayOfWeek", "days": [false, true, true, true, true, true, false]}
+  ],
+  "actions": [
+    {"valveId": 1, "state": "on", "duration": 600},
+    {"valveId": 2, "state": "on", "duration": 300}
+  ]
+}
+```
+
+### Modules
+
+Sensor modules are Arduino Nano-based I²C devices. They must be physically connected to the I²C bus, discovered via scan, then registered before they can be used in scenarios.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/modules` | List all registered modules |
+| POST | `/modules/scan` | Scan the I²C bus for modules |
+| POST | `/modules/{uid}/register` | Register a discovered module by UID |
+| POST | `/modules/{uid}` | Update module settings — body: `{"customName": "Soil Sensor"}` |
+| DELETE | `/modules/{uid}` | Remove a registered module |
+| GET | `/modules/{uid}/reading` | Get current sensor reading |
+
+Registered modules response:
 ```json
 [
   {
-    "scheduleId": 0,
-    "valveId": 1,
-    "fromHour": 6,
-    "fromMinute": 30,
-    "duration": 600,
-    "active": true,
-    "days": [true, true, true, true, true, false, false]
+    "uid": "TEMP001ABC12",
+    "type": "TMP",
+    "version": 1,
+    "unit": "C",
+    "addr": 8,
+    "customName": "Soil Sensor"
   }
 ]
 ```
 
-Days array: [Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday]
+Scan result (`POST /modules/scan`):
+```json
+[
+  {
+    "addr": 8,
+    "uid": "TEMP001ABC12",
+    "type": "TMP",
+    "version": 1,
+    "unit": "C",
+    "registered": true
+  }
+]
+```
 
-#### POST /schedule/add
-Add a new schedule.
+Reading response (`GET /modules/{uid}/reading`):
+```json
+{"value": 22.5}
+```
 
-Request:
+### MQTT
+
+MQTT is optional. When enabled, the device publishes valve state, timers, and events to a broker and subscribes to control topics.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/system/mqtt` | Get MQTT configuration and connection status |
+| POST | `/system/mqtt` | Update MQTT settings |
+
+MQTT settings body:
 ```json
 {
-  "valveId": 1,
-  "fromHour": 6,
-  "fromMinute": 30,
-  "duration": 600,
-  "days": [false, true, true, true, true, true, false]
+  "enabled": true,
+  "server": "192.168.1.100",
+  "port": 1883,
+  "user": "mqttuser",
+  "password": "mqttpassword"
 }
 ```
 
-Duration is in seconds. Response includes the assigned `scheduleId`.
+**Published topics** (prefix: `dripdrop/{deviceName}`):
 
-#### POST /schedule/update
-Update an existing schedule.
+| Topic | Description |
+|-------|-------------|
+| `.../valve/{id}/state` | Valve on/off state, source, last run |
+| `.../timer/{id}/state` | Timer start/remaining/expire events |
+| `.../sensor/{uid}/state` | Sensor reading `{"value": 22.5}` |
+| `.../system/state` | System health snapshot |
+| `.../event` | Structured log events (INFO/WARNING) |
+| `.../status` | `online` / `offline` (LWT) |
 
-Request:
+**Subscribed topics:**
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `.../valve/+/set` | `{"state": "on"}` / `{"state": "off"}` | Remote valve control |
+| `.../timer/+/set` | `{"duration": 300}` | Start a timer |
+
+### Filesystem
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/fs/info` | Filesystem capacity — total, used, free bytes |
+| GET | `/fs/list?path=<path>` | Recursive file listing for a path (default `/`) |
+| DELETE | `/fs/dir?path=<path>` | Recursively delete a directory |
+| POST | `/fs/upload?path=<path>` | Upload a single file to LittleFS |
+
+`/fs/info` response:
+```json
+{"total": 1441792, "used": 312400, "free": 1129392}
+```
+
+`/fs/list` response:
 ```json
 {
-  "scheduleId": 0,
-  "valveId": 1,
-  "fromHour": 7,
-  "fromMinute": 0,
-  "duration": 900,
-  "days": [true, true, true, true, true, true, true]
+  "path": "/webapp",
+  "files": [
+    {"path": "/webapp/index.html", "size": 4321},
+    {"path": "/webapp/assets/main.abc.js", "size": 98765}
+  ]
 }
 ```
-
-#### POST /schedule/delete
-Delete a schedule.
-
-Request:
-```json
-{"scheduleId": 0}
-```
-
-#### POST /schedule/deleteAll
-Delete all schedules.
 
 ### Authentication
 
-If `API_AUTH_ENABLED` is set to `true`, all requests must include the API key header:
-
+If `API_AUTH_ENABLED` is `true`, all requests must include:
 ```
 X-API-Key: your-api-key
 ```
 
 ### OTA Updates
 
-Navigate to `http://dripdrop.local/update` to upload new firmware via web browser.
+Use `make ota` for a full over-the-air update (webapp + firmware), or the individual targets for partial updates. For scripted/manual curl:
 
-## Project Structure
+```bash
+# Firmware only
+curl -X POST http://dripdrop.local/ota/upload -F "firmware=@build/firmware.bin"
 
-```
-dripdrop/
-├── dripdrop.ino      # Main sketch - setup, loop, HTTP handlers
-├── config.h          # Configuration constants and defaults
-├── types.h           # Type definitions, structs, enums
-├── valves.h          # ValveController class declaration
-├── valves.cpp        # ValveController implementation
-├── scheduler.h       # SchedulerClass declaration
-├── scheduler.cpp     # SchedulerClass implementation (EEPROM persistence)
-├── timers.h          # TimerManager class declaration
-├── timers.cpp        # TimerManager implementation
-└── AppHtml.h         # Embedded web interface (optional)
+# Full LittleFS image (overwrites everything including config — use with care)
+curl -X POST http://dripdrop.local/ota/upload-fs -F "fs=@build/littlefs.bin"
 ```
 
 ## Control Priority
 
-When multiple control sources affect the same valve, the following priority applies:
+When multiple sources affect the same valve:
 
-1. **Manual** (highest) - API-triggered on/off commands
-2. **Timer** - One-time duration-based activation
-3. **Schedule** (lowest) - Recurring time-based activation
+1. **Manual** (highest) — API on/off commands
+2. **Timer** — one-shot timed activation
+3. **Scenario** (lowest) — condition-based automation
 
-A valve controlled manually will not be affected by schedules or timers until manually turned off.
+A manually controlled valve will not be overridden by scenarios or timers until turned off manually.
 
 ## Troubleshooting
 
-### Device not connecting to WiFi
-- Verify credentials in `config_local.h`
-- Device will create an access point "DripDrop" if WiFi connection fails
-- Connect to AP and access `http://192.168.4.1`
+**Device not connecting to WiFi**
+- Verify credentials in `src/config_local.h`
+- On failure, the device starts an AP named "DripDrop" — connect and access `http://192.168.4.1`
 
-### Schedules not running
-- Check NTP sync status via `/system/status` (ntpSynced should be true)
+**Scenarios not running**
+- Check NTP sync via `GET /system/status` (`ntpSynced` must be `true`)
 - Verify timezone configuration matches your location
-- Ensure schedule has correct days enabled
+- Scenarios use edge detection — if conditions were already true at boot, they won't fire until conditions reset and become true again
 
-### EEPROM data corrupted
-- The system automatically detects and reinitializes corrupted EEPROM data
-- All schedules will be cleared if corruption is detected
-- Check serial output for "EEPROM not initialized" or "checksum mismatch" messages
-
-### Valves not switching
-- Verify relay module is active-LOW (most common) or adjust `VALVE_ACTIVE_HIGH` in config
+**Valves not switching**
+- Verify relay module is active-LOW (default) or set `VALVE_ACTIVE_HIGH true` in config
 - Check GPIO pin assignments match your wiring
-- Test with `/valve/state/on` API call and monitor serial output
+- Test with `POST /valves/1/on` and monitor serial output
 
-## Serial Debug Output
-
-Connect via serial monitor at 115200 baud to see debug output:
-
-```
-[VALVE] Valve 1: ON (source: 3)
-[SCHED] Schedule 0 activated valve 1
-[WIFI] Connection lost, reconnecting...
-```
-
-Debug output can be disabled for production by setting `DEBUG_ENABLED` to `0`.
+**Serial debug output**
+Connect at 115200 baud. Disable for production with `DEBUG_ENABLED 0` in config.
 
 ## License
 
