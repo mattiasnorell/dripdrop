@@ -11,8 +11,9 @@
 #include <ArduinoJson.h>
 #include "../../src/modules.h"
 
-// Pull in stub globals (Wire, LittleFS) and the real implementation
+// Pull in stub globals (Wire, LittleFS, Mqtt) and the real implementation
 #include "../stubs/stubs_common.cpp"
+#include "../stubs/stubs_mqtt.cpp"
 #include "../../src/modules.cpp"
 
 extern ModuleManager Modules;
@@ -24,15 +25,15 @@ extern ModuleManager Modules;
 // Build a packed Descriptor byte array.
 static void makeDescriptor(uint8_t* buf,
                             const uint8_t magic[4],
+                            uint8_t role,
                             const char* type,
                             uint8_t version,
-                            const char* unit,
                             const char* uid) {
   Descriptor d = {};
   memcpy(d.magic, magic, 4);
+  d.role = role;
   strncpy(d.type, type, sizeof(d.type) - 1);
   d.version = version;
-  strncpy(d.unit, unit, sizeof(d.unit) - 1);
   strncpy(d.uid,  uid,  sizeof(d.uid)  - 1);
   memcpy(buf, &d, sizeof(Descriptor));
 }
@@ -46,10 +47,10 @@ static void makeSensorResponse(uint8_t* buf, uint8_t status, float value) {
 }
 
 // Shorthand: program a valid Descriptor response at (addr, CMD_GET_DESCRIPTOR).
-static void stubDescriptor(uint8_t addr, const char* type, uint8_t version,
-                            const char* unit, const char* uid) {
+static void stubDescriptor(uint8_t addr, uint8_t role, const char* type,
+                            uint8_t version, const char* uid) {
   uint8_t buf[sizeof(Descriptor)];
-  makeDescriptor(buf, MODULE_MAGIC, type, version, unit, uid);
+  makeDescriptor(buf, MODULE_MAGIC, role, type, version, uid);
   Wire.stub_setResponse(addr, CMD_GET_DESCRIPTOR, buf, sizeof(Descriptor));
 }
 
@@ -84,7 +85,7 @@ void test_scan_empty_bus_returns_zero(void) {
 }
 
 void test_scan_finds_module_with_valid_magic(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   TEST_ASSERT_EQUAL(1, Modules.scanModules());
   TEST_ASSERT_EQUAL(1, Modules.discoveredCount());
 }
@@ -93,7 +94,7 @@ void test_scan_skips_module_with_bad_magic(void) {
   // Build a descriptor with wrong magic bytes
   uint8_t badMagic[4] = {0x00, 0x11, 0x22, 0x33};
   uint8_t buf[sizeof(Descriptor)];
-  makeDescriptor(buf, badMagic, "TMP", 1, "C", "AABBCCDDEEFF");
+  makeDescriptor(buf, badMagic, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Wire.stub_setResponse(0x28, CMD_GET_DESCRIPTOR, buf, sizeof(Descriptor));
 
   TEST_ASSERT_EQUAL(0, Modules.scanModules());
@@ -101,16 +102,16 @@ void test_scan_skips_module_with_bad_magic(void) {
 }
 
 void test_scan_discovers_multiple_modules(void) {
-  stubDescriptor(0x10, "TMP", 1, "C",  "UID000000001");
-  stubDescriptor(0x20, "HUM", 2, "%RH", "UID000000002");
-  stubDescriptor(0x30, "SOM", 1, "mS", "UID000000003");
+  stubDescriptor(0x10, ROLE_SENSOR, "TMP", 1, "UID000000001");
+  stubDescriptor(0x20, ROLE_SENSOR, "HUM", 2, "UID000000002");
+  stubDescriptor(0x30, ROLE_DRIVER, "RLY", 1, "UID000000003");
 
   TEST_ASSERT_EQUAL(3, Modules.scanModules());
   TEST_ASSERT_EQUAL(3, Modules.discoveredCount());
 }
 
 void test_scan_newly_discovered_module_is_unregistered(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
 
   String json;
@@ -123,13 +124,13 @@ void test_scan_newly_discovered_module_is_unregistered(void) {
 
 void test_scan_sets_registered_flag_for_known_uid(void) {
   // First scan: discover and register
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
   Modules.registerModule("AABBCCDDEEFF");
 
   // Second scan: same module should be flagged as registered
   Wire.stub_reset();
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
 
   String json;
@@ -141,7 +142,7 @@ void test_scan_sets_registered_flag_for_known_uid(void) {
 }
 
 void test_scan_result_contains_correct_fields(void) {
-  stubDescriptor(0x28, "TMP", 3, "C", "DEADBEEF1234");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 3, "DEADBEEF1234");
   Modules.scanModules();
 
   String json;
@@ -149,11 +150,23 @@ void test_scan_result_contains_correct_fields(void) {
 
   JsonDocument doc;
   deserializeJson(doc, json);
-  TEST_ASSERT_EQUAL(0x28,          doc[0]["addr"].as<int>());
-  TEST_ASSERT_EQUAL_STRING("TMP",  doc[0]["type"].as<const char*>());
-  TEST_ASSERT_EQUAL(3,             doc[0]["version"].as<int>());
-  TEST_ASSERT_EQUAL_STRING("C",    doc[0]["unit"].as<const char*>());
+  TEST_ASSERT_EQUAL(0x28,                  doc[0]["addr"].as<int>());
+  TEST_ASSERT_EQUAL_STRING("sensor",       doc[0]["role"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("TMP",          doc[0]["type"].as<const char*>());
+  TEST_ASSERT_EQUAL(3,                     doc[0]["version"].as<int>());
   TEST_ASSERT_EQUAL_STRING("DEADBEEF1234", doc[0]["uid"].as<const char*>());
+}
+
+void test_scan_result_driver_has_driver_role(void) {
+  stubDescriptor(0x28, ROLE_DRIVER, "RLY", 1, "DEADBEEF1234");
+  Modules.scanModules();
+
+  String json;
+  Modules.serializeScan(json);
+
+  JsonDocument doc;
+  deserializeJson(doc, json);
+  TEST_ASSERT_EQUAL_STRING("driver", doc[0]["role"].as<const char*>());
 }
 
 // ============================================================================
@@ -161,7 +174,7 @@ void test_scan_result_contains_correct_fields(void) {
 // ============================================================================
 
 void test_register_succeeds_for_discovered_uid(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
 
   TEST_ASSERT_TRUE(Modules.registerModule("AABBCCDDEEFF"));
@@ -176,7 +189,7 @@ void test_register_fails_for_uid_not_in_scan(void) {
 }
 
 void test_register_fails_for_already_registered_uid(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
   TEST_ASSERT_TRUE(Modules.registerModule("AABBCCDDEEFF"));
   TEST_ASSERT_FALSE(Modules.registerModule("AABBCCDDEEFF"));  // duplicate
@@ -184,7 +197,7 @@ void test_register_fails_for_already_registered_uid(void) {
 }
 
 void test_register_persists_correct_metadata(void) {
-  stubDescriptor(0x28, "TMP", 2, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 2, "AABBCCDDEEFF");
   Modules.scanModules();
   Modules.registerModule("AABBCCDDEEFF");
 
@@ -194,10 +207,23 @@ void test_register_persists_correct_metadata(void) {
   JsonDocument doc;
   deserializeJson(doc, json);
   TEST_ASSERT_EQUAL_STRING("AABBCCDDEEFF", doc[0]["uid"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("sensor",       doc[0]["role"].as<const char*>());
   TEST_ASSERT_EQUAL_STRING("TMP",          doc[0]["type"].as<const char*>());
   TEST_ASSERT_EQUAL(2,                     doc[0]["version"].as<int>());
-  TEST_ASSERT_EQUAL_STRING("C",            doc[0]["unit"].as<const char*>());
   TEST_ASSERT_EQUAL(0x28,                  doc[0]["addr"].as<int>());
+}
+
+void test_register_driver_persists_driver_role(void) {
+  stubDescriptor(0x30, ROLE_DRIVER, "RLY", 1, "DRIVER000001");
+  Modules.scanModules();
+  Modules.registerModule("DRIVER000001");
+
+  String json;
+  Modules.serializeRegistered(json);
+
+  JsonDocument doc;
+  deserializeJson(doc, json);
+  TEST_ASSERT_EQUAL_STRING("driver", doc[0]["role"].as<const char*>());
 }
 
 // ============================================================================
@@ -205,7 +231,7 @@ void test_register_persists_correct_metadata(void) {
 // ============================================================================
 
 void test_remove_succeeds_for_registered_uid(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
   Modules.registerModule("AABBCCDDEEFF");
 
@@ -218,7 +244,7 @@ void test_remove_fails_for_unknown_uid(void) {
 }
 
 void test_remove_clears_registered_flag_in_discovered_list(void) {
-  stubDescriptor(0x28, "TMP", 1, "C", "AABBCCDDEEFF");
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "AABBCCDDEEFF");
   Modules.scanModules();
   Modules.registerModule("AABBCCDDEEFF");
   Modules.removeModule("AABBCCDDEEFF");
@@ -232,9 +258,9 @@ void test_remove_clears_registered_flag_in_discovered_list(void) {
 }
 
 void test_remove_middle_entry_compacts_list(void) {
-  stubDescriptor(0x10, "TMP", 1, "C", "UID000000001");
-  stubDescriptor(0x20, "HUM", 1, "%", "UID000000002");
-  stubDescriptor(0x30, "SOM", 1, "x", "UID000000003");
+  stubDescriptor(0x10, ROLE_SENSOR, "TMP", 1, "UID000000001");
+  stubDescriptor(0x20, ROLE_SENSOR, "HUM", 1, "UID000000002");
+  stubDescriptor(0x30, ROLE_DRIVER, "RLY", 1, "UID000000003");
   Modules.scanModules();
   Modules.registerModule("UID000000001");
   Modules.registerModule("UID000000002");
@@ -295,6 +321,56 @@ void test_read_sends_correct_command(void) {
 }
 
 // ============================================================================
+// Tests — commandModule()
+// ============================================================================
+
+void test_command_succeeds_for_registered_driver(void) {
+  stubDescriptor(0x28, ROLE_DRIVER, "RLY", 1, "DRIVER000001");
+  Modules.scanModules();
+  Modules.registerModule("DRIVER000001");
+
+  // ACK the CMD_DO_ACTION command
+  Wire.stub_setResponse(0x28, CMD_DO_ACTION, nullptr, 0);
+
+  TEST_ASSERT_TRUE(Modules.commandModule(0x28, 0x01));
+}
+
+void test_command_fails_for_sensor(void) {
+  stubDescriptor(0x28, ROLE_SENSOR, "TMP", 1, "SENSORUID00001");
+  Modules.scanModules();
+  Modules.registerModule("SENSORUID00001");
+
+  TEST_ASSERT_FALSE(Modules.commandModule(0x28, 0x01));
+}
+
+void test_command_fails_for_unregistered_addr(void) {
+  // Address not registered at all
+  TEST_ASSERT_FALSE(Modules.commandModule(0x50, 0x01));
+}
+
+void test_command_sends_correct_bytes(void) {
+  stubDescriptor(0x28, ROLE_DRIVER, "RLY", 1, "DRIVER000001");
+  Modules.scanModules();
+  Modules.registerModule("DRIVER000001");
+  Wire.stub_setResponse(0x28, CMD_DO_ACTION, nullptr, 0);
+
+  Modules.commandModule(0x28, 0x42);
+
+  TEST_ASSERT_EQUAL(0x28,          Wire.stub_lastTxAddr());
+  TEST_ASSERT_EQUAL(CMD_DO_ACTION, Wire.stub_lastTxCmd());
+  TEST_ASSERT_EQUAL(0x42,          Wire.stub_lastTxPayload());
+}
+
+void test_command_fails_when_no_ack(void) {
+  stubDescriptor(0x28, ROLE_DRIVER, "RLY", 1, "DRIVER000001");
+  Modules.scanModules();
+  Modules.registerModule("DRIVER000001");
+
+  // No Wire stub for CMD_DO_ACTION → endTransmission returns NACK
+  TEST_ASSERT_FALSE(Modules.commandModule(0x28, 0x01));
+}
+
+// ============================================================================
 // Tests — serializeRegistered()
 // ============================================================================
 
@@ -328,12 +404,14 @@ int main(int argc, char** argv) {
   RUN_TEST(test_scan_newly_discovered_module_is_unregistered);
   RUN_TEST(test_scan_sets_registered_flag_for_known_uid);
   RUN_TEST(test_scan_result_contains_correct_fields);
+  RUN_TEST(test_scan_result_driver_has_driver_role);
 
   // Registration
   RUN_TEST(test_register_succeeds_for_discovered_uid);
   RUN_TEST(test_register_fails_for_uid_not_in_scan);
   RUN_TEST(test_register_fails_for_already_registered_uid);
   RUN_TEST(test_register_persists_correct_metadata);
+  RUN_TEST(test_register_driver_persists_driver_role);
 
   // Removal
   RUN_TEST(test_remove_succeeds_for_registered_uid);
@@ -346,6 +424,13 @@ int main(int argc, char** argv) {
   RUN_TEST(test_read_returns_false_for_error_status);
   RUN_TEST(test_read_returns_false_when_no_device);
   RUN_TEST(test_read_sends_correct_command);
+
+  // Commands
+  RUN_TEST(test_command_succeeds_for_registered_driver);
+  RUN_TEST(test_command_fails_for_sensor);
+  RUN_TEST(test_command_fails_for_unregistered_addr);
+  RUN_TEST(test_command_sends_correct_bytes);
+  RUN_TEST(test_command_fails_when_no_ack);
 
   // Serialization
   RUN_TEST(test_serialize_registered_empty_returns_empty_array);

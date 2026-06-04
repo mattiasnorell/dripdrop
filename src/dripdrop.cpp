@@ -117,6 +117,7 @@ void handleModuleRegister();
 void handleModuleUpdate();
 void handleModuleRemove();
 void handleModuleReading();
+void handleModuleCommand();
 void handleConfigExport();
 void handleConfigImport();
 
@@ -386,6 +387,7 @@ void setupRoutes() {
   server.on("/modules/scan", HTTP_POST, handleModuleScan);
   server.on(UriBraces("/modules/{}/register"), HTTP_POST, handleModuleRegister);
   server.on(UriBraces("/modules/{}/reading"), HTTP_GET, handleModuleReading);
+  server.on(UriBraces("/modules/{}/command"), HTTP_POST, handleModuleCommand);
   server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
   server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
 

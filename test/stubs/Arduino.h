@@ -13,6 +13,7 @@
 
 // Arduino type aliases (already in <cstdint> but some code expects them unqualified)
 using std::size_t;
+using byte = uint8_t;
 
 // Pin constants
 #define HIGH 1

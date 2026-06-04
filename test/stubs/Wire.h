@@ -29,13 +29,20 @@ public:
 
   /** Start a transmission to addr. */
   void beginTransmission(uint8_t addr) {
-    _txAddr = addr;
-    _txCmd  = 0;
+    _txAddr       = addr;
+    _txCmd        = 0;
+    _txPayload    = 0;
+    _txWriteCount = 0;
   }
 
-  /** Write a command byte into the pending transmission. */
+  /** Write bytes into the pending transmission. First byte is the command. */
   size_t write(uint8_t b) {
-    _txCmd = b;
+    if (_txWriteCount == 0) {
+      _txCmd = b;
+    } else {
+      _txPayload = b;
+    }
+    _txWriteCount++;
     return 1;
   }
 
@@ -105,7 +112,7 @@ public:
         _resp[i].addr  = addr;
         _resp[i].cmd   = cmd;
         if (len > WIRE_STUB_BUF_SIZE) len = WIRE_STUB_BUF_SIZE;
-        memcpy(_resp[i].data, data, len);
+        if (data && len > 0) memcpy(_resp[i].data, data, len);
         _resp[i].len   = len;
         _resp[i].valid = true;
         return;
@@ -122,10 +129,13 @@ public:
     _rxLen = 0;
     _rxPos = 0;
     _txAddr = _txCmd = _lastTxAddr = _lastTxCmd = 0;
+    _txPayload    = 0;
+    _txWriteCount = 0;
   }
 
-  uint8_t stub_lastTxAddr() const { return _lastTxAddr; }
-  uint8_t stub_lastTxCmd()  const { return _lastTxCmd;  }
+  uint8_t stub_lastTxAddr()    const { return _lastTxAddr; }
+  uint8_t stub_lastTxCmd()     const { return _lastTxCmd;  }
+  uint8_t stub_lastTxPayload() const { return _txPayload;  }
 
 private:
   struct StubResponse {
@@ -142,10 +152,12 @@ private:
   uint8_t _rxLen       = 0;
   uint8_t _rxPos       = 0;
 
-  uint8_t _txAddr      = 0;
-  uint8_t _txCmd       = 0;
-  uint8_t _lastTxAddr  = 0;
-  uint8_t _lastTxCmd   = 0;
+  uint8_t _txAddr        = 0;
+  uint8_t _txCmd         = 0;
+  uint8_t _txPayload     = 0;
+  uint8_t _txWriteCount  = 0;
+  uint8_t _lastTxAddr    = 0;
+  uint8_t _lastTxCmd     = 0;
 };
 
 extern TwoWire Wire;

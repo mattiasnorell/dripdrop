@@ -4,7 +4,9 @@
 #include "Arduino.h"
 #include "Wire.h"
 #include "LittleFS.h"
+#include "WiFi.h"
 
 SerialStub Serial;
 TwoWire Wire;
 LittleFSClass LittleFS;
+WiFiClass WiFi;

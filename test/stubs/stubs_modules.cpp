@@ -35,6 +35,8 @@ uint8_t ModuleManager::scanModules()                        { return 0; }
 bool    ModuleManager::registerModule(const char*)          { return false; }
 bool    ModuleManager::removeModule(const char*)            { return false; }
 bool    ModuleManager::setCustomName(const char*, const char*) { return true; }
+bool    ModuleManager::setUnit(const char*, const char*)       { return true; }
+bool    ModuleManager::commandModule(uint8_t, uint8_t)         { return false; }
 
 uint8_t ModuleManager::addrForUid(const char* uid) const {
   for (uint8_t i = 0; i < 8; i++) {
@@ -55,8 +57,9 @@ bool ModuleManager::readModule(uint8_t addr, SensorResponse& out) {
 void ModuleManager::serializeScan(String& out) const       { out = "[]"; }
 void ModuleManager::serializeRegistered(String& out) const { out = "[]"; }
 
-bool ModuleManager::scanAddress(uint8_t, Descriptor&)           { return false; }
-void ModuleManager::load()                                       {}
-void ModuleManager::save()                                       {}
-bool ModuleManager::findRegistered(const char*, uint8_t&) const { return false; }
-bool ModuleManager::findDiscovered(const char*, uint8_t&) const { return false; }
+bool ModuleManager::scanAddress(uint8_t, Descriptor&)              { return false; }
+void ModuleManager::load()                                          {}
+void ModuleManager::save()                                          {}
+bool ModuleManager::findRegistered(const char*, uint8_t&) const    { return false; }
+bool ModuleManager::findRegisteredByAddr(uint8_t, uint8_t&) const  { return false; }
+bool ModuleManager::findDiscovered(const char*, uint8_t&) const    { return false; }

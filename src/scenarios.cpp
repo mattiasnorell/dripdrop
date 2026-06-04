@@ -200,6 +200,17 @@ const char *ScenarioManager::validate(const JsonObject &input) const
         }
       }
     }
+    else if (strcmp(type, "driver") == 0)
+    {
+      if (!action["uid"].is<const char *>())
+      {
+        return "driver action requires 'uid'";
+      }
+      if (!action["cmd"].is<int>())
+      {
+        return "driver action requires 'cmd'";
+      }
+    }
     else if (strcmp(type, "callUrl") == 0)
     {
       const char *url = action["url"] | "";
@@ -595,6 +606,21 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
       req.method = method;
       req.headers = String(headers).substring(0, CALL_URL_MAX_HEADERS_LEN);
       req.body = String(body).substring(0, CALL_URL_MAX_BODY_LEN);
+    }
+    else if (strcmp(type, "driver") == 0)
+    {
+      const char *uid = action["uid"] | "";
+      uint8_t cmd = action["cmd"].as<int>();
+      uint8_t addr = Modules.addrForUid(uid);
+      if (addr == 0)
+      {
+        DEBUG_SCENARIO("driver action: uid=%s not registered, skipping\n", uid);
+        continue;
+      }
+      if (!Modules.commandModule(addr, cmd))
+      {
+        DEBUG_SCENARIO("driver action: commandModule failed for uid=%s cmd=%d\n", uid, cmd);
+      }
     }
     else
     {

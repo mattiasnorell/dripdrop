@@ -46,7 +46,6 @@ uint8_t ModuleManager::scanModules()
 
     // Force null-termination on string fields (defensive against malformed firmware)
     desc.type[3] = '\0';
-    desc.unit[4] = '\0';
     desc.uid[12] = '\0';
 
     DiscoveredModule &slot = _discovered[_discoveredCount++];
@@ -102,13 +101,13 @@ bool ModuleManager::registerModule(const char *uid)
 
   strncpy(m.uid, desc.uid, sizeof(m.uid) - 1);
   m.uid[sizeof(m.uid) - 1] = '\0';
+  m.role = desc.role;
   strncpy(m.type, desc.type, sizeof(m.type) - 1);
   m.type[sizeof(m.type) - 1] = '\0';
-  strncpy(m.unit, desc.unit, sizeof(m.unit) - 1);
-  m.unit[sizeof(m.unit) - 1] = '\0';
   m.version = desc.version;
   m.addr = _discovered[discIdx].addr;
   m.customName[0] = '\0';
+  m.unit[0] = '\0';
 
   _discovered[discIdx].registered = true;
 
@@ -210,9 +209,9 @@ void ModuleManager::serializeScan(String &out) const
     JsonObject obj = arr.add<JsonObject>();
     obj["addr"] = m.addr;
     obj["uid"] = m.desc.uid;
+    obj["role"] = (m.desc.role == ROLE_DRIVER) ? "driver" : "sensor";
     obj["type"] = m.desc.type;
     obj["version"] = m.desc.version;
-    obj["unit"] = m.desc.unit;
     obj["registered"] = m.registered;
   }
 
@@ -229,11 +228,12 @@ void ModuleManager::serializeRegistered(String &out) const
     const RegisteredModule &m = _registered[i];
     JsonObject obj = arr.add<JsonObject>();
     obj["uid"] = m.uid;
+    obj["role"] = (m.role == ROLE_DRIVER) ? "driver" : "sensor";
     obj["type"] = m.type;
     obj["version"] = m.version;
-    obj["unit"] = m.unit;
     obj["addr"] = m.addr;
     obj["customName"] = m.customName[0] ? (const char*)m.customName : (const char*)nullptr;
+    obj["unit"] = m.unit[0] ? (const char*)m.unit : (const char*)nullptr;
   }
 
   serializeJson(doc, out);
@@ -251,6 +251,42 @@ bool ModuleManager::setCustomName(const char* uid, const char* name)
   }
 
   save();
+  return true;
+}
+
+bool ModuleManager::setUnit(const char* uid, const char* unit)
+{
+  uint8_t idx;
+  if (!findRegistered(uid, idx)) return false;
+
+  if (unit && unit[0] != '\0') {
+    strlcpy(_registered[idx].unit, unit, sizeof(_registered[idx].unit));
+  } else {
+    _registered[idx].unit[0] = '\0';
+  }
+
+  save();
+  return true;
+}
+
+bool ModuleManager::commandModule(uint8_t addr, uint8_t cmd)
+{
+  uint8_t idx;
+  if (!findRegisteredByAddr(addr, idx) || _registered[idx].role != ROLE_DRIVER)
+  {
+    DEBUG_PRINTF("[MODULE] commandModule: 0x%02X is not a registered driver\n", addr);
+    return false;
+  }
+
+  Wire.beginTransmission(addr);
+  Wire.write(CMD_DO_ACTION);
+  Wire.write(cmd);
+  if (Wire.endTransmission() != 0)
+  {
+    DEBUG_PRINTF("[MODULE] commandModule: no ACK from 0x%02X\n", addr);
+    return false;
+  }
+
   return true;
 }
 
@@ -311,7 +347,7 @@ void ModuleManager::load()
 
     const char *uid = entry["uid"] | "";
     const char *type = entry["type"] | "";
-    const char *unit = entry["unit"] | "";
+    uint8_t role = entry["role"] | (uint8_t)ROLE_SENSOR;
     uint8_t version = entry["version"] | (uint8_t)0;
     uint8_t addr = entry["addr"] | (uint8_t)0;
 
@@ -321,13 +357,13 @@ void ModuleManager::load()
     RegisteredModule &m = _registered[_registeredCount++];
     strncpy(m.uid, uid, sizeof(m.uid) - 1);
     m.uid[sizeof(m.uid) - 1] = '\0';
+    m.role = role;
     strncpy(m.type, type, sizeof(m.type) - 1);
     m.type[sizeof(m.type) - 1] = '\0';
-    strncpy(m.unit, unit, sizeof(m.unit) - 1);
-    m.unit[sizeof(m.unit) - 1] = '\0';
     m.version = version;
     m.addr = addr;
     strlcpy(m.customName, entry["customName"] | "", sizeof(m.customName));
+    strlcpy(m.unit, entry["unit"] | "", sizeof(m.unit));
   }
 
   DEBUG_PRINTF("[MODULE] Loaded %d registered module(s)\n", _registeredCount);
@@ -343,11 +379,12 @@ void ModuleManager::save()
     const RegisteredModule &m = _registered[i];
     JsonObject obj = arr.add<JsonObject>();
     obj["uid"] = m.uid;
+    obj["role"] = m.role;
     obj["type"] = m.type;
     obj["version"] = m.version;
-    obj["unit"] = m.unit;
     obj["addr"] = m.addr;
     if (m.customName[0] != '\0') obj["customName"] = m.customName;
+    if (m.unit[0] != '\0') obj["unit"] = m.unit;
   }
 
   File f = LittleFS.open(MODULES_FILE, "w");
@@ -375,6 +412,19 @@ bool ModuleManager::findRegistered(const char *uid, uint8_t &outIndex) const
   for (uint8_t i = 0; i < _registeredCount; i++)
   {
     if (strcmp(_registered[i].uid, uid) == 0)
+    {
+      outIndex = i;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ModuleManager::findRegisteredByAddr(uint8_t addr, uint8_t &outIndex) const
+{
+  for (uint8_t i = 0; i < _registeredCount; i++)
+  {
+    if (_registered[i].addr == addr)
     {
       outIndex = i;
       return true;
