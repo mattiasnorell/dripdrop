@@ -214,7 +214,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 #endif
 
 // Backlight auto-off after N seconds of inactivity (0 = always on)
-constexpr uint16_t DISPLAY_BACKLIGHT_TIMEOUT_SECS = 10;
+constexpr uint16_t DISPLAY_BACKLIGHT_TIMEOUT_SECS = 0;
 
 // How often to refresh the display (milliseconds)
 constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
