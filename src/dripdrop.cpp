@@ -41,6 +41,7 @@
 #include "mqtt.h"
 #include "AppHtml.h"
 #include "api_utils.h"
+#include "display.h"
 
 // =============================================================================
 // Global Objects
@@ -141,6 +142,7 @@ void setup() {
   Timers.begin();
   Scenarios.begin();
   Modules.begin();
+  Display.begin();
   loadSettings();
   Mqtt.begin();
 
@@ -207,6 +209,8 @@ void loop() {
   Scenarios.maybeSave(now);
   Scenarios.drainCallUrlQueue();
   Mqtt.loop(now);
+  Display.update(currentTime, apMode,
+      apMode ? String(MDNS_HOSTNAME) + ".local" : WiFi.localIP().toString());
   esp_task_wdt_reset();
 }
 

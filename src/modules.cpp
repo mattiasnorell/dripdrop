@@ -30,6 +30,9 @@ uint8_t ModuleManager::scanModules()
     if (_discoveredCount >= MAX_MODULES)
       break;
 
+    if (addr == LCD_I2C_ADDR)
+      continue;
+
     Descriptor desc;
     if (!scanAddress(addr, desc))
       continue;

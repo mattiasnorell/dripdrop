@@ -22,7 +22,8 @@ void handleOtaUploadComplete() {
     sendJsonResponse(500, "update failed");
   } else {
     sendJsonResponse(200, "ok");
-    delay(100);
+    server.client().stop();  // flush TCP before chip resets
+    delay(500);
     ESP.restart();
   }
 }
@@ -62,7 +63,8 @@ void handleOtaFsUploadComplete() {
     sendJsonResponse(500, "update failed");
   } else {
     sendJsonResponse(200, "ok");
-    delay(100);
+    server.client().stop();  // flush TCP before chip resets
+    delay(500);
     ESP.restart();
   }
 }

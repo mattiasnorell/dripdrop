@@ -205,10 +205,25 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 #endif
 
 // =============================================================================
+// Display Configuration (LCD2004 I2C)
+// =============================================================================
+
+// I2C address of PCF8574 backpack: 0x27 (PCF8574T) or 0x3F (PCF8574AT)
+#ifndef LCD_I2C_ADDR
+  #define LCD_I2C_ADDR 0x27
+#endif
+
+// Backlight auto-off after N seconds of inactivity (0 = always on)
+constexpr uint16_t DISPLAY_BACKLIGHT_TIMEOUT_SECS = 10;
+
+// How often to refresh the display (milliseconds)
+constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
+
+// =============================================================================
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.0.8"
+#define FIRMWARE_VERSION "4.1.0"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================
