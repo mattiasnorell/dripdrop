@@ -88,6 +88,15 @@ public:
    */
   void drainCallUrlQueue();
 
+  /**
+   * Immediately execute a scenario's actions, bypassing condition evaluation.
+   * Sets fired=true to prevent auto-firing if conditions happen to be true.
+   * @param id Scenario ID string
+   * @param now Current Unix timestamp
+   * @return true if found and executed, false if not found
+   */
+  bool run(const char* id, time_t now);
+
 private:
   // In-memory scenario storage as a single JSON document
   mutable JsonDocument _doc;

@@ -1,12 +1,13 @@
 /**
  * DripDrop - Scenario HTTP Handlers
  *
- * Handles: /scenarios (GET + POST), /scenarios/{id} (POST + DELETE)
+ * Handles: /scenarios (GET + POST), /scenarios/{id} (POST + DELETE), /scenarios/{id}/run (POST)
  */
 
 #include "api_utils.h"
 #include "scenarios.h"
 #include "mqtt.h"
+#include <time.h>
 
 void handleScenarioList() {
   sendCorsHeaders();
@@ -89,5 +90,19 @@ void handleScenarioDelete() {
   char d[48];
   snprintf(d, sizeof(d), "{\"id\":\"%s\"}", id.c_str());
   Mqtt.publishEvent(LogLevel::INFO, LogEvent::SCENARIO_DELETE, d);
+  sendJsonResponse(200, "ok");
+}
+
+void handleScenarioRun() {
+  sendCorsHeaders();
+  if (!checkApiAuth()) return;
+
+  String id = server.pathArg(0);
+
+  if (!Scenarios.run(id.c_str(), time(nullptr))) {
+    sendJsonError(404, "Scenario not found");
+    return;
+  }
+
   sendJsonResponse(200, "ok");
 }

@@ -7,6 +7,7 @@
 #include "timers.h"
 #include "modules.h"
 #include "mqtt.h"
+#include "display.h"
 #include <LittleFS.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -226,6 +227,13 @@ const char *ScenarioManager::validate(const JsonObject &input) const
       if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0)
       {
         return "callUrl action requires 'method' (GET or POST)";
+      }
+    }
+    else if (strcmp(type, "display") == 0)
+    {
+      if (!action["timeout"].is<int>() || action["timeout"].as<int>() < 0)
+      {
+        return "display action requires non-negative 'timeout'";
       }
     }
     // Unknown types pass validation — preserved for round-trip
@@ -622,6 +630,21 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         DEBUG_SCENARIO("driver action: commandModule failed for uid=%s cmd=%d\n", uid, cmd);
       }
     }
+    else if (strcmp(type, "display") == 0)
+    {
+      int timeout = action["timeout"] | 0;
+      if (timeout == 0)
+      {
+        DEBUG_SCENARIO("display action: timeout=0, skipping\n");
+        continue;
+      }
+      String r0 = action["row0"] | "";
+      String r1 = action["row1"] | "";
+      String r2 = action["row2"] | "";
+      String r3 = action["row3"] | "";
+      Display.showOverride(r0, r1, r2, r3, (uint32_t)timeout);
+      DEBUG_SCENARIO("display action: override for %d sec\n", timeout);
+    }
     else
     {
       DEBUG_SCENARIO("Unknown action type '%s', skipping\n", type);
@@ -709,6 +732,34 @@ static void executeCallUrl(const CallUrlRequest &req)
     DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
     http.end();
   }
+}
+
+bool ScenarioManager::run(const char* id, time_t now)
+{
+  int idx = findIndex(id);
+  if (idx < 0) return false;
+
+  JsonArray arr = _doc.as<JsonArray>();
+  JsonObject scenario = arr[idx];
+
+  JsonArray actions = scenario["actions"];
+  executeActions(actions, now);
+
+  uint16_t scenarioId = atoi(id);
+  RuntimeState* rs = getState(scenarioId);
+  if (rs)
+  {
+    rs->lastRun = now;
+    rs->fired = true;
+  }
+
+  char det[96];
+  snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
+           id, scenario["name"].as<const char*>());
+  Mqtt.publishEvent(LogLevel::INFO, LogEvent::SCENARIO_FIRE, det);
+
+  DEBUG_SCENARIO("Manual run of scenario id=%s\n", id);
+  return true;
 }
 
 void ScenarioManager::drainCallUrlQueue()

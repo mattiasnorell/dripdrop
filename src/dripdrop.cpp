@@ -111,6 +111,7 @@ void handleScenarioList();
 void handleScenarioAdd();
 void handleScenarioUpdate();
 void handleScenarioDelete();
+void handleScenarioRun();
 void handleModuleList();
 void handleModuleScan();
 void handleModuleRegister();
@@ -375,9 +376,10 @@ void setupRoutes() {
   server.on(UriBraces("/valves/{}/timer"), HTTP_POST, handleTimerPost);
   server.on(UriBraces("/valves/{}/timer"), HTTP_DELETE, handleTimerAbort);
 
-  // Scenarios
+  // Scenarios — register /scenarios/{}/run before /scenarios/{} (longer pattern first)
   server.on("/scenarios", HTTP_GET, handleScenarioList);
   server.on("/scenarios", HTTP_POST, handleScenarioAdd);
+  server.on(UriBraces("/scenarios/{}/run"), HTTP_POST, handleScenarioRun);
   server.on(UriBraces("/scenarios/{}"), HTTP_POST, handleScenarioUpdate);
   server.on(UriBraces("/scenarios/{}"), HTTP_DELETE, handleScenarioDelete);
 
