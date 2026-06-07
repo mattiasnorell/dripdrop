@@ -194,17 +194,7 @@ void loop() {
     }
   }
 
-  if (!ntpSynced) {
-    if (currentTime > MIN_VALID_UNIX_TIME) {
-      ntpSynced = true;
-      lastNtpSync = now;
-      DEBUG_PRINTLN(F("NTP synchronized"));
-
-      char d[32];
-      snprintf(d, sizeof(d), "{\"currentTime\":%d}", currentTime);
-      Mqtt.publishEvent(LogLevel::INFO, LogEvent::SYSTEM_NTP_SYNCED, d);
-    }
-  } else if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
+  if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
     lastNtpSync = now;
   }
 
@@ -273,8 +263,36 @@ void setupMdns() {
   }
 }
 
+static time_t buildTimestamp() {
+  // Parse __DATE__ ("Jun  6 2026") and __TIME__ ("14:30:00") into a Unix timestamp
+  static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  char mon[4] = {};
+  int day, year, hour, min, sec;
+  sscanf(__DATE__, "%3s %d %d", mon, &day, &year);
+  sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
+  struct tm t = {};
+  t.tm_year  = year - 1900;
+  t.tm_mon   = (strstr(months, mon) - months) / 3;
+  t.tm_mday  = day;
+  t.tm_hour  = hour;
+  t.tm_min   = min;
+  t.tm_sec   = sec;
+  t.tm_isdst = -1;
+  return mktime(&t);
+}
+
 void setupNtp() {
   configTime(TIMEZONE_OFFSET_SEC, DST_OFFSET_SEC, NTP_SERVER_PRIMARY, NTP_SERVER_SECONDARY);
+
+  // Set clock to compile-time as fallback so scenarios run even without NTP.
+  // The SNTP client will silently overwrite this with real time once it syncs.
+  time_t fallback = buildTimestamp();
+  struct timeval tv = { fallback, 0 };
+  settimeofday(&tv, nullptr);
+  ntpSynced = true;
+  lastNtpSync = millis();
+
+  DEBUG_PRINTF("Fallback time set to build timestamp: %ld\n", (long)fallback);
   DEBUG_PRINTLN(F("NTP configured"));
 }
 
