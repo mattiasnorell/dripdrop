@@ -23,9 +23,7 @@ void DisplayController::begin() {
     snprintf(buf, sizeof(buf), "%s v%s", FIRMWARE_NAME, FIRMWARE_VERSION);
     writeRow(_lcd, 0, buf);
 
-    char bufLoading[21];
-    snprintf(bufLoading, sizeof(bufLoading), "%s", "Starting up...");
-    writeRow(_lcd, 2, bufLoading);
+    writeRow(_lcd, 2, "Starting up...");
 }
 
 void DisplayController::showOverride(const String& r0, const String& r1, const String& r2, const String& r3, uint32_t timeoutSecs) {
@@ -33,15 +31,14 @@ void DisplayController::showOverride(const String& r0, const String& r1, const S
     snprintf(_overrideRows[1], sizeof(_overrideRows[1]), "%s", r1.c_str());
     snprintf(_overrideRows[2], sizeof(_overrideRows[2]), "%s", r2.c_str());
     snprintf(_overrideRows[3], sizeof(_overrideRows[3]), "%s", r3.c_str());
-    _overrideEndMs = millis() + (timeoutSecs * 1000UL);
+    _overrideStartMs = millis();
+    _overrideTimeoutMs = timeoutSecs * 1000UL;
 }
 
 void DisplayController::update(time_t now, bool apMode, const String& ip) {
     unsigned long ms = millis();
-    if (ms - _lastUpdate < DISPLAY_UPDATE_INTERVAL_MS) return;
-    _lastUpdate = ms;
 
-    if (_overrideEndMs > 0 && ms < _overrideEndMs) {
+    if (_overrideTimeoutMs > 0 && ms - _overrideStartMs < _overrideTimeoutMs) {
         for (uint8_t i = 0; i < 4; i++) {
             writeRow(_lcd, i, _overrideRows[i]);
         }
@@ -51,7 +48,7 @@ void DisplayController::update(time_t now, bool apMode, const String& ip) {
         }
         return;
     }
-    _overrideEndMs = 0;
+    _overrideTimeoutMs = 0;
 
     renderRow0();
     renderRow1(ip, apMode);
@@ -99,6 +96,7 @@ void DisplayController::renderRow2(time_t now) {
 }
 
 void DisplayController::renderRow3() {
+    static_assert(NUM_VALVES == 4, "renderRow3 is hardcoded for 4 valves");
     char v[4];
     for (uint8_t i = 0; i < 4; i++) {
         const Valve* vp = Valves.getValve(i);

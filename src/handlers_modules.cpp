@@ -67,7 +67,7 @@ void handleModuleUpdate() {
 
   if (doc["customName"].is<const char*>() || doc["customName"].isNull()) {
     const char* name = doc["customName"].isNull() ? nullptr : doc["customName"].as<const char*>();
-    if (!Modules.setCustomName(uid.c_str(), name)) {
+    if (!Modules.setCustomName(uid.c_str(), name, false)) {
       sendJsonError(404, "Module not found");
       return;
     }
@@ -76,7 +76,7 @@ void handleModuleUpdate() {
 
   if (doc["unit"].is<const char*>() || doc["unit"].isNull()) {
     const char* unit = doc["unit"].isNull() ? nullptr : doc["unit"].as<const char*>();
-    if (!Modules.setUnit(uid.c_str(), unit)) {
+    if (!Modules.setUnit(uid.c_str(), unit, false)) {
       sendJsonError(404, "Module not found");
       return;
     }
@@ -88,6 +88,7 @@ void handleModuleUpdate() {
     return;
   }
 
+  Modules.save();
   sendJsonResponse(200, "Module updated");
 }
 

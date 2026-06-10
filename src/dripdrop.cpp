@@ -188,10 +188,8 @@ void loop() {
   if (now - lastScenarioCheck >= SCENARIO_CHECK_INTERVAL_MS) {
     lastScenarioCheck = now;
 
-    if (ntpSynced) {
-      Scenarios.check(currentTime);
-      Timers.check(currentTime);
-    }
+    Scenarios.check(currentTime);
+    Timers.check(currentTime);
   }
 
   if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
@@ -201,8 +199,14 @@ void loop() {
   Scenarios.maybeSave(now);
   Scenarios.drainCallUrlQueue();
   Mqtt.loop(now);
-  Display.update(currentTime, apMode,
-      apMode ? String(MDNS_HOSTNAME) + ".local" : WiFi.localIP().toString());
+
+  static unsigned long lastDisplayMs = 0;
+  if (now - lastDisplayMs >= DISPLAY_UPDATE_INTERVAL_MS) {
+    lastDisplayMs = now;
+    Display.update(currentTime, apMode,
+        apMode ? String(MDNS_HOSTNAME) + ".local" : WiFi.localIP().toString());
+  }
+
   esp_task_wdt_reset();
 }
 
@@ -272,7 +276,8 @@ static time_t buildTimestamp() {
   sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
   struct tm t = {};
   t.tm_year  = year - 1900;
-  t.tm_mon   = (strstr(months, mon) - months) / 3;
+  const char* mp = strstr(months, mon);
+  t.tm_mon   = mp ? (int)(mp - months) / 3 : 0;
   t.tm_mday  = day;
   t.tm_hour  = hour;
   t.tm_min   = min;

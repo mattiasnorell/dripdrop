@@ -113,7 +113,7 @@ public:
    * @param name  Display name (max 31 chars), or nullptr/empty to clear.
    * @return true on success; false if the UID is not registered.
    */
-  bool setCustomName(const char* uid, const char* name);
+  bool setCustomName(const char* uid, const char* name, bool persist = true);
 
   /**
    * Set the unit label for a registered module and persist to flash.
@@ -123,7 +123,7 @@ public:
    * @param unit  Unit string (max 4 chars), or nullptr/empty to clear.
    * @return true on success; false if the UID is not registered.
    */
-  bool setUnit(const char* uid, const char* unit);
+  bool setUnit(const char* uid, const char* unit, bool persist = true);
 
   /**
    * Send CMD_GET_READING to addr and read a SensorResponse.
@@ -168,6 +168,8 @@ public:
   uint8_t discoveredCount()  const { return _discoveredCount; }
   uint8_t registeredCount()  const { return _registeredCount; }
 
+  void save();
+
 private:
   // ---- Internal representations ----------------------------------------
 
@@ -210,7 +212,6 @@ private:
   // ---- LittleFS helpers -----------------------------------------------
 
   void load();
-  void save();
 
   // ---- Lookup helpers -------------------------------------------------
 

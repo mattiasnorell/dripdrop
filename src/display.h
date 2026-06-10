@@ -13,10 +13,10 @@ public:
 
 private:
     LiquidCrystal_I2C _lcd{LCD_I2C_ADDR, 20, 4};
-    unsigned long _lastUpdate = 0;
     unsigned long _lastActivity = 0;
     bool _backlightOn = true;
-    unsigned long _overrideEndMs = 0;
+    unsigned long _overrideStartMs = 0;
+    unsigned long _overrideTimeoutMs = 0;
     char _overrideRows[4][21];
 
     void renderRow0();

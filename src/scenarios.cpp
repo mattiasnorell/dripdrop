@@ -755,7 +755,7 @@ bool ScenarioManager::run(const char* id, time_t now)
 
   char det[96];
   snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
-           id, scenario["name"].as<const char*>());
+           id, scenario["name"] | "");
   Mqtt.publishEvent(LogLevel::INFO, LogEvent::SCENARIO_FIRE, det);
 
   DEBUG_SCENARIO("Manual run of scenario id=%s\n", id);

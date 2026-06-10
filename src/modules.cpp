@@ -239,7 +239,7 @@ void ModuleManager::serializeRegistered(String &out) const
   serializeJson(doc, out);
 }
 
-bool ModuleManager::setCustomName(const char* uid, const char* name)
+bool ModuleManager::setCustomName(const char* uid, const char* name, bool persist)
 {
   uint8_t idx;
   if (!findRegistered(uid, idx)) return false;
@@ -250,11 +250,11 @@ bool ModuleManager::setCustomName(const char* uid, const char* name)
     _registered[idx].customName[0] = '\0';
   }
 
-  save();
+  if (persist) save();
   return true;
 }
 
-bool ModuleManager::setUnit(const char* uid, const char* unit)
+bool ModuleManager::setUnit(const char* uid, const char* unit, bool persist)
 {
   uint8_t idx;
   if (!findRegistered(uid, idx)) return false;
@@ -265,7 +265,7 @@ bool ModuleManager::setUnit(const char* uid, const char* unit)
     _registered[idx].unit[0] = '\0';
   }
 
-  save();
+  if (persist) save();
   return true;
 }
 
