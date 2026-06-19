@@ -19,6 +19,13 @@ private:
     unsigned long _overrideTimeoutMs = 0;
     char _overrideRows[4][21];
 
+    // Last text written to each row; lets update() skip slow I2C writes when
+    // the content has not changed since the previous refresh.
+    char _rowCache[4][21] = {};
+
+    // Write a (space-padded) line to the LCD only if it differs from the cache.
+    void writeRow(uint8_t row, const char* text);
+
     void renderRow0();
     void renderRow1(const String& ip, bool apMode);
     void renderRow2(time_t now);

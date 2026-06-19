@@ -192,9 +192,8 @@ void loop() {
     Timers.check(currentTime);
   }
 
-  if (now - lastNtpSync >= NTP_SYNC_INTERVAL_MS) {
-    lastNtpSync = now;
-  }
+  // NTP resync is handled automatically in the background by the SNTP client
+  // configured in setupNtp(); no periodic action is required here.
 
   Scenarios.maybeSave(now);
   Scenarios.drainCallUrlQueue();
@@ -203,8 +202,20 @@ void loop() {
   static unsigned long lastDisplayMs = 0;
   if (now - lastDisplayMs >= DISPLAY_UPDATE_INTERVAL_MS) {
     lastDisplayMs = now;
-    Display.update(currentTime, apMode,
-        apMode ? String(MDNS_HOSTNAME) + ".local" : WiFi.localIP().toString());
+
+    // Rebuild the IP/host string only when the connection state changes —
+    // toString() allocates a String, so we avoid doing it every second.
+    static String displayIp;
+    static bool ipApMode = true;
+    static wl_status_t ipWifiStatus = (wl_status_t)0xFF;
+    wl_status_t st = WiFi.status();
+    if (displayIp.length() == 0 || apMode != ipApMode || st != ipWifiStatus) {
+      ipApMode = apMode;
+      ipWifiStatus = st;
+      displayIp = apMode ? String(MDNS_HOSTNAME) + ".local"
+                         : WiFi.localIP().toString();
+    }
+    Display.update(currentTime, apMode, displayIp);
   }
 
   esp_task_wdt_reset();
@@ -268,12 +279,16 @@ void setupMdns() {
 }
 
 static time_t buildTimestamp() {
-  // Parse __DATE__ ("Jun  6 2026") and __TIME__ ("14:30:00") into a Unix timestamp
+  // Parse __DATE__ ("Jun  6 2026") and __TIME__ ("14:30:00") into a Unix timestamp.
+  // Hand-parsed with atoi instead of sscanf — the scanf family pulls in ~17 KB of
+  // newlib code that would otherwise only be used by this one-shot boot call.
   static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-  char mon[4] = {};
-  int day, year, hour, min, sec;
-  sscanf(__DATE__, "%3s %d %d", mon, &day, &year);
-  sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
+  char mon[4] = { __DATE__[0], __DATE__[1], __DATE__[2], '\0' };
+  int day  = atoi(__DATE__ + 4);  // atoi skips the leading space for single-digit days
+  int year = atoi(__DATE__ + 7);
+  int hour = atoi(__TIME__);      // atoi stops at the ':' separators
+  int min  = atoi(__TIME__ + 3);
+  int sec  = atoi(__TIME__ + 6);
   struct tm t = {};
   t.tm_year  = year - 1900;
   const char* mp = strstr(months, mon);

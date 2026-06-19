@@ -56,5 +56,9 @@ flash-all: build
 	$(PIO) run -e esp32dev -t upload
 	$(PIO) run -e esp32dev -t uploadfs
 
+# Report firmware flash/RAM usage (and per-symbol breakdown via -v)
+size:
+	$(PIO) run -e esp32dev -t size
+
 clean:
 	rm -rf $(BUILD_DIR)

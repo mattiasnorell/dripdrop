@@ -117,6 +117,16 @@ private:
   };
   RuntimeState _state[MAX_SCENARIOS];
 
+  // Cache of sensor reads within a single check() cycle, keyed by I²C address.
+  // Several scenarios/conditions can reference the same sensor; this keeps each
+  // physical I²C transaction to once per cycle (failures are cached too).
+  struct SensorCacheEntry
+  {
+    uint8_t addr;
+    bool ok;
+    float value;
+  };
+
   /**
    * Load scenarios from LittleFS.
    */
@@ -140,9 +150,20 @@ private:
 
   /**
    * Evaluate all conditions for a scenario.
+   * @param cache       Per-cycle sensor read cache (deduplicates I²C reads)
+   * @param cacheCount  Number of populated cache entries (updated in place)
    * @return true if all conditions pass
    */
-  bool evaluateConditions(const JsonArray &conditions, const struct tm *timeInfo, time_t now) const;
+  bool evaluateConditions(const JsonArray &conditions, const struct tm *timeInfo, time_t now,
+                          SensorCacheEntry *cache, uint8_t &cacheCount) const;
+
+  /**
+   * Read a sensor by I²C address, returning a cached value if already read
+   * this cycle. Caches both successful reads and failures.
+   * @return true on a good reading (value populated); false on error.
+   */
+  bool readSensorCached(uint8_t addr, float &value,
+                        SensorCacheEntry *cache, uint8_t &cacheCount) const;
 
   /**
    * Execute all actions for a scenario.

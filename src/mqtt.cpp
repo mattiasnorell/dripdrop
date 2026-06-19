@@ -179,22 +179,29 @@ void MqttManager::publishValveState(uint8_t valveId) {
   const Valve* valve = Valves.getValve(index);
   if (!valve) return;
 
-  JsonDocument doc;
-  doc["isOn"] = valve->isOn;
-  doc["source"] = sourceToString(valve->source);
-  if (valve->lastRunStart > 0) doc["lastRunStart"] = (long)valve->lastRunStart;
-
-  time_t now = time(nullptr);
-  if (Timers.isActive(valveId, now)) {
-    doc["timerRemaining"] = Timers.getRemainingSeconds(valveId, now);
+  // Build the payload on the stack to avoid per-call heap allocation.
+  char payload[128];
+  int n = snprintf(payload, sizeof(payload),
+                   "{\"isOn\":%s,\"source\":\"%s\"",
+                   valve->isOn ? "true" : "false",
+                   sourceToString(valve->source));
+  if (valve->lastRunStart > 0 && n < (int)sizeof(payload)) {
+    n += snprintf(payload + n, sizeof(payload) - n,
+                  ",\"lastRunStart\":%ld", (long)valve->lastRunStart);
   }
-
-  String payload;
-  serializeJson(doc, payload);
+  time_t now = time(nullptr);
+  if (Timers.isActive(valveId, now) && n < (int)sizeof(payload)) {
+    n += snprintf(payload + n, sizeof(payload) - n,
+                  ",\"timerRemaining\":%lu",
+                  (unsigned long)Timers.getRemainingSeconds(valveId, now));
+  }
+  if (n < (int)sizeof(payload)) {
+    snprintf(payload + n, sizeof(payload) - n, "}");
+  }
 
   char topic[64];
   snprintf(topic, sizeof(topic), "%s/valve/%d/state", _topicPrefix.c_str(), valveId);
-  _mqttClient.publish(topic, payload.c_str(), true);
+  _mqttClient.publish(topic, payload, true);
 }
 
 void MqttManager::publishAllValveStates() {
@@ -206,31 +213,29 @@ void MqttManager::publishAllValveStates() {
 void MqttManager::publishSystemStatus() {
   if (!_mqttClient.connected()) return;
 
-  JsonDocument doc;
-  doc["uptime"] = millis();
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["wifi"] = WiFi.RSSI();
-  doc["ntp"] = (time(nullptr) > MIN_VALID_UNIX_TIME);
-  doc["valves"] = Valves.getActiveCount();
+  char payload[160];
+  snprintf(payload, sizeof(payload),
+           "{\"uptime\":%lu,\"freeHeap\":%lu,\"wifi\":%d,\"ntp\":%s,\"valves\":%u}",
+           (unsigned long)millis(),
+           (unsigned long)ESP.getFreeHeap(),
+           (int)WiFi.RSSI(),
+           (time(nullptr) > MIN_VALID_UNIX_TIME) ? "true" : "false",
+           (unsigned)Valves.getActiveCount());
 
-  String payload;
-  serializeJson(doc, payload);
-
-  String topic = _topicPrefix + "/system/state";
-  _mqttClient.publish(topic.c_str(), payload.c_str(), true);
+  char topic[64];
+  snprintf(topic, sizeof(topic), "%s/system/state", _topicPrefix.c_str());
+  _mqttClient.publish(topic, payload, true);
 }
 
 void MqttManager::publishSensorReading(const char* uid, float value) {
   if (!_mqttClient.connected()) return;
 
-  JsonDocument doc;
-  doc["value"] = value;
+  char payload[32];
+  snprintf(payload, sizeof(payload), "{\"value\":%.2f}", value);
 
-  String payload;
-  serializeJson(doc, payload);
-
-  String topic = _topicPrefix + "/sensor/" + uid + "/state";
-  _mqttClient.publish(topic.c_str(), payload.c_str(), true);
+  char topic[96];
+  snprintf(topic, sizeof(topic), "%s/sensor/%s/state", _topicPrefix.c_str(), uid);
+  _mqttClient.publish(topic, payload, true);
 }
 
 bool MqttManager::isConnected() const {
@@ -263,23 +268,22 @@ void MqttManager::disconnect() {
 void MqttManager::publishEvent(const char* level, const char* event, const char* details) {
   if (!_mqttClient.connected()) return;
 
-  JsonDocument doc;
-  doc["app"]    = "dripdrop";
-  doc["module"] = deviceName;
-  doc["level"]  = level;
-  doc["event"]  = event;
-  if (details && strlen(details) > 0) {
-    JsonDocument det;
-    if (deserializeJson(det, details) == DeserializationError::Ok) {
-      doc["details"] = det.as<JsonObject>();
-    }
+  // `details` is already a JSON object string built by the caller, so splice it
+  // in directly instead of parsing and re-serializing it through ArduinoJson.
+  char payload[MQTT_BUFFER_SIZE];
+  int n = snprintf(payload, sizeof(payload),
+                   "{\"app\":\"dripdrop\",\"module\":\"%s\",\"level\":\"%s\",\"event\":\"%s\"",
+                   deviceName.c_str(), level, event);
+  if (details && details[0] != '\0' && n < (int)sizeof(payload)) {
+    n += snprintf(payload + n, sizeof(payload) - n, ",\"details\":%s", details);
+  }
+  if (n < (int)sizeof(payload)) {
+    snprintf(payload + n, sizeof(payload) - n, "}");
   }
 
-  String payload;
-  serializeJson(doc, payload);
-
-  String topic = _topicPrefix + "/event";
-  _mqttClient.publish(topic.c_str(), payload.c_str());
+  char topic[64];
+  snprintf(topic, sizeof(topic), "%s/event", _topicPrefix.c_str());
+  _mqttClient.publish(topic, payload);
 }
 
 void MqttManager::buildTopicPrefix() {

@@ -4,11 +4,13 @@
 
 DisplayController Display;
 
-static void writeRow(LiquidCrystal_I2C& lcd, uint8_t row, const char* text) {
-    lcd.setCursor(0, row);
+void DisplayController::writeRow(uint8_t row, const char* text) {
     char buf[21];
     snprintf(buf, sizeof(buf), "%-20s", text);
-    lcd.print(buf);
+    if (strcmp(_rowCache[row], buf) == 0) return;  // unchanged — skip slow I2C
+    strcpy(_rowCache[row], buf);
+    _lcd.setCursor(0, row);
+    _lcd.print(buf);
 }
 
 void DisplayController::begin() {
@@ -21,9 +23,9 @@ void DisplayController::begin() {
 
     char buf[21];
     snprintf(buf, sizeof(buf), "%s v%s", FIRMWARE_NAME, FIRMWARE_VERSION);
-    writeRow(_lcd, 0, buf);
+    writeRow(0, buf);
 
-    writeRow(_lcd, 2, "Starting up...");
+    writeRow(2, "Starting up...");
 }
 
 void DisplayController::showOverride(const String& r0, const String& r1, const String& r2, const String& r3, uint32_t timeoutSecs) {
@@ -40,7 +42,7 @@ void DisplayController::update(time_t now, bool apMode, const String& ip) {
 
     if (_overrideTimeoutMs > 0 && ms - _overrideStartMs < _overrideTimeoutMs) {
         for (uint8_t i = 0; i < 4; i++) {
-            writeRow(_lcd, i, _overrideRows[i]);
+            writeRow(i, _overrideRows[i]);
         }
         if (DISPLAY_BACKLIGHT_TIMEOUT_SECS > 0) {
             _lastActivity = ms;
@@ -72,7 +74,7 @@ void DisplayController::update(time_t now, bool apMode, const String& ip) {
 void DisplayController::renderRow0() {
     char buf[21];
     snprintf(buf, sizeof(buf), "%s v%s", FIRMWARE_NAME, FIRMWARE_VERSION);
-    writeRow(_lcd, 0, buf);
+    writeRow(0, buf);
 }
 
 void DisplayController::renderRow1(const String& ip, bool apMode) {
@@ -81,7 +83,7 @@ void DisplayController::renderRow1(const String& ip, bool apMode) {
         snprintf(buf, sizeof(buf), "AP: %s", ip.c_str());
     else
         snprintf(buf, sizeof(buf), "%s", ip.c_str());
-    writeRow(_lcd, 1, buf);
+    writeRow(1, buf);
 }
 
 void DisplayController::renderRow2(time_t now) {
@@ -92,7 +94,7 @@ void DisplayController::renderRow2(time_t now) {
     } else {
         strncpy(buf, "--:--:-- --/--/--", sizeof(buf));
     }
-    writeRow(_lcd, 2, buf);
+    writeRow(2, buf);
 }
 
 void DisplayController::renderRow3() {
@@ -104,6 +106,5 @@ void DisplayController::renderRow3() {
     }
     char buf[21];
     snprintf(buf, sizeof(buf), "Vlv. 1:%c 2:%c 3:%c 4:%c", v[0], v[1], v[2], v[3]);
-    _lcd.setCursor(0, 3);
-    _lcd.print(buf);
+    writeRow(3, buf);
 }

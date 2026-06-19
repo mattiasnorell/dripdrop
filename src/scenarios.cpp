@@ -441,6 +441,12 @@ void ScenarioManager::check(time_t currentTime)
   struct tm timeInfo;
   localtime_r(&currentTime, &timeInfo);
 
+  // Sensor read cache shared across all scenarios for this cycle: each sensor
+  // is read over I²C at most once per check() regardless of how many scenarios
+  // reference it.
+  SensorCacheEntry sensorCache[MAX_MODULES];
+  uint8_t sensorCacheCount = 0;
+
   JsonArray arr = _doc.as<JsonArray>();
 
   for (JsonObject scenario : arr)
@@ -455,7 +461,8 @@ void ScenarioManager::check(time_t currentTime)
       continue;
 
     JsonArray conditions = scenario["conditions"];
-    bool allMatch = evaluateConditions(conditions, &timeInfo, currentTime);
+    bool allMatch = evaluateConditions(conditions, &timeInfo, currentTime,
+                                       sensorCache, sensorCacheCount);
 
     if (allMatch && !rs->fired)
     {
@@ -480,7 +487,8 @@ void ScenarioManager::check(time_t currentTime)
   }
 }
 
-bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const struct tm *timeInfo, time_t now) const
+bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const struct tm *timeInfo, time_t now,
+                                         SensorCacheEntry *cache, uint8_t &cacheCount) const
 {
   for (JsonObject cond : conditions)
   {
@@ -513,10 +521,9 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
       uint8_t addr = Modules.addrForUid(sensorId);
       if (addr == 0)
         return false;
-      SensorResponse resp;
-      if (!Modules.readModule(addr, resp))
+      float reading;
+      if (!readSensorCached(addr, reading, cache, cacheCount))
         return false;
-      float reading = resp.value;
 
       if (strcmp(op, "gt") == 0)
       {
@@ -540,6 +547,37 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
     }
   }
 
+  return true;
+}
+
+bool ScenarioManager::readSensorCached(uint8_t addr, float &value,
+                                       SensorCacheEntry *cache, uint8_t &cacheCount) const
+{
+  for (uint8_t i = 0; i < cacheCount; i++)
+  {
+    if (cache[i].addr == addr)
+    {
+      if (!cache[i].ok)
+        return false;
+      value = cache[i].value;
+      return true;
+    }
+  }
+
+  SensorResponse resp;
+  bool ok = Modules.readModule(addr, resp);
+
+  if (cacheCount < MAX_MODULES)
+  {
+    cache[cacheCount].addr = addr;
+    cache[cacheCount].ok = ok;
+    cache[cacheCount].value = ok ? resp.value : 0.0f;
+    cacheCount++;
+  }
+
+  if (!ok)
+    return false;
+  value = resp.value;
   return true;
 }
 
@@ -685,10 +723,25 @@ static void applyParsedHeaders(HTTPClient &http, const String &raw)
   }
 }
 
+// Issue the configured request on an already-begun HTTPClient and return the code.
+static int performCallUrl(HTTPClient &http, const CallUrlRequest &req)
+{
+  http.setTimeout(CALL_URL_TIMEOUT_MS);
+  applyParsedHeaders(http, req.headers);
+
+  if (req.method == "POST")
+  {
+    http.addHeader("Content-Length", String(req.body.length()));
+    return http.POST(req.body);
+  }
+  return http.GET();
+}
+
 static void executeCallUrl(const CallUrlRequest &req)
 {
   unsigned long t0 = millis();
   HTTPClient http;
+  int code;
 
   if (req.url.startsWith("https://"))
   {
@@ -696,42 +749,18 @@ static void executeCallUrl(const CallUrlRequest &req)
     WiFiClientSecure *secureClient = new WiFiClientSecure;
     secureClient->setInsecure();
     http.begin(*secureClient, req.url);
-    http.setTimeout(CALL_URL_TIMEOUT_MS);
-    applyParsedHeaders(http, req.headers);
-
-    int code;
-    if (req.method == "POST")
-    {
-      http.addHeader("Content-Length", String(req.body.length()));
-      code = http.POST(req.body);
-    }
-    else
-    {
-      code = http.GET();
-    }
-    DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
+    code = performCallUrl(http, req);
     http.end();
     delete secureClient;
   }
   else
   {
     http.begin(req.url);
-    http.setTimeout(CALL_URL_TIMEOUT_MS);
-    applyParsedHeaders(http, req.headers);
-
-    int code;
-    if (req.method == "POST")
-    {
-      http.addHeader("Content-Length", String(req.body.length()));
-      code = http.POST(req.body);
-    }
-    else
-    {
-      code = http.GET();
-    }
-    DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
+    code = performCallUrl(http, req);
     http.end();
   }
+
+  DEBUG_SCENARIO("callUrl %s → %d (%lums)\n", req.url.c_str(), code, millis() - t0);
 }
 
 bool ScenarioManager::run(const char* id, time_t now)
