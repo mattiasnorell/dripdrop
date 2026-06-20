@@ -5,10 +5,10 @@
  * web API, scenario-based automation, and NTP time synchronization.
  *
  * Features:
- * - Control up to 4 irrigation valves
+ * - Control up to 4 irrigation relays
  * - Scenario-based if-this-then-that automation
  * - One-time timer support
- * - Manual valve control via REST API
+ * - Manual relay control via REST API
  * - I2C sensor board integration
  * - NTP time synchronization
  * - OTA firmware updates
@@ -33,7 +33,7 @@
 
 #include "config.h"
 #include "types.h"
-#include "valves.h"
+#include "relays.h"
 #include "timers.h"
 #include "scenarios.h"
 #include "modules.h"
@@ -93,7 +93,7 @@ void setup() {
     DEBUG_PRINTLN(F("LittleFS mounted"));
   }
 
-  Valves.begin();
+  Relays.begin();
   Timers.begin();
   Scenarios.begin();
   Modules.begin();

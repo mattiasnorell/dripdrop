@@ -114,18 +114,18 @@ constexpr unsigned long NTP_SYNC_INTERVAL_MS = 3600000UL;
 // Hardware Configuration
 // =============================================================================
 
-// Number of valves supported
-constexpr uint8_t NUM_VALVES = 4;
+// Number of relays supported
+constexpr uint8_t NUM_RELAYS = 4;
 
-// Valve GPIO pins (active LOW - relay typically pulls LOW to activate)
+// Relay GPIO pins (active LOW - relay typically pulls LOW to activate)
 // Using GPIO 25, 26, 27, 32 — safe on all ESP32 DevKit variants.
 // Strapping pins to avoid: 0 (boot mode), 2 (boot/LED), 5, 12, 15.
 // Also avoid 6-11 (SPI flash), 34-39 (input-only, no output driver).
-constexpr uint8_t VALVE_PINS[NUM_VALVES] = {25, 26, 27, 32};
+constexpr uint8_t RELAY_PINS[NUM_RELAYS] = {25, 26, 27, 32};
 
-// Valve logic level (true = active HIGH, false = active LOW)
+// Relay logic level (true = active HIGH, false = active LOW)
 // Most relay modules are active LOW
-constexpr bool VALVE_ACTIVE_HIGH = false;
+constexpr bool RELAY_ACTIVE_HIGH = false;
 
 // =============================================================================
 // Scenario Configuration
@@ -190,7 +190,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINTF(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
-  #define DEBUG_VALVE(fmt, ...) Serial.printf("[VALVE] " fmt, ##__VA_ARGS__)
+  #define DEBUG_RELAY(fmt, ...) Serial.printf("[RELAY] " fmt, ##__VA_ARGS__)
   #define DEBUG_SCENARIO(fmt, ...) Serial.printf("[SCENARIO] " fmt, ##__VA_ARGS__)
   #define DD_DEBUG_WIFI(fmt, ...) Serial.printf("[WIFI] " fmt, ##__VA_ARGS__)
   #define DEBUG_API(fmt, ...) Serial.printf("[API] " fmt, ##__VA_ARGS__)
@@ -198,7 +198,7 @@ constexpr unsigned long SERIAL_BAUD_RATE = 115200;
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTF(fmt, ...)
-  #define DEBUG_VALVE(fmt, ...)
+  #define DEBUG_RELAY(fmt, ...)
   #define DEBUG_SCENARIO(fmt, ...)
   #define DD_DEBUG_WIFI(fmt, ...)
   #define DEBUG_API(fmt, ...)
@@ -223,7 +223,7 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.2.0"
+#define FIRMWARE_VERSION "4.3.0"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================
@@ -233,8 +233,8 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // LittleFS file for persisted settings
 constexpr const char* SETTINGS_FILE = "/settings.json";
 
-// LittleFS file for custom valve names
-constexpr const char* VALVE_NAMES_FILE = "/valve_names.json";
+// LittleFS file for custom relay names
+constexpr const char* RELAY_NAMES_FILE = "/relay_names.json";
 
 // =============================================================================
 // Include local overrides if available

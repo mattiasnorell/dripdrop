@@ -7,8 +7,8 @@ MqttManager Mqtt;
 
 void MqttManager::begin() {}
 void MqttManager::loop(unsigned long) {}
-void MqttManager::publishValveState(uint8_t) {}
-void MqttManager::publishAllValveStates() {}
+void MqttManager::publishRelayState(uint8_t) {}
+void MqttManager::publishAllRelayStates() {}
 void MqttManager::publishSystemStatus() {}
 void MqttManager::publishSensorReading(const char*, float) {}
 bool MqttManager::isConnected() const { return false; }

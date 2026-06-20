@@ -1,12 +1,12 @@
 /**
  * DripDrop - Timer HTTP Handlers
  *
- * Handles: /timers, /valves/{id}/timer (POST + DELETE)
+ * Handles: /timers, /relays/{id}/timer (POST + DELETE)
  */
 
 #include "api_utils.h"
 #include "timers.h"
-#include "valves.h"
+#include "relays.h"
 #include "config.h"
 #include <time.h>
 
@@ -19,12 +19,12 @@ void handleTimerGet() {
   JsonDocument doc;
   JsonArray arr = doc.to<JsonArray>();
 
-  for (uint8_t i = 0; i < NUM_VALVES; i++) {
+  for (uint8_t i = 0; i < NUM_RELAYS; i++) {
     const Timer* timer = Timers.get(i);
     if (!timer) continue;
 
     JsonObject obj = arr.add<JsonObject>();
-    obj["valveId"] = timer->valveId;
+    obj["relayId"] = timer->relayId;
     obj["endTime"] = timer->endTime;
     obj["active"] = timer->isActive(now);
 
@@ -42,10 +42,10 @@ void handleTimerPost() {
   sendCorsHeaders();
   if (!checkApiAuth()) return;
 
-  uint8_t valveId = server.pathArg(0).toInt();
+  uint8_t relayId = server.pathArg(0).toInt();
 
-  if (!Valves.isValidId(valveId)) {
-    sendJsonError(404, "Valve not found");
+  if (!Relays.isValidId(relayId)) {
+    sendJsonError(404, "Relay not found");
     return;
   }
 
@@ -69,7 +69,7 @@ void handleTimerPost() {
     return;
   }
 
-  if (!Timers.start(valveId, duration)) {
+  if (!Timers.start(relayId, duration)) {
     sendJsonError(500, "Failed to start timer");
     return;
   }
@@ -81,13 +81,13 @@ void handleTimerAbort() {
   sendCorsHeaders();
   if (!checkApiAuth()) return;
 
-  uint8_t valveId = server.pathArg(0).toInt();
+  uint8_t relayId = server.pathArg(0).toInt();
 
-  if (!Valves.isValidId(valveId)) {
-    sendJsonError(404, "Valve not found");
+  if (!Relays.isValidId(relayId)) {
+    sendJsonError(404, "Relay not found");
     return;
   }
 
-  Timers.abort(valveId);
+  Timers.abort(relayId);
   sendJsonResponse(200, "ok");
 }

@@ -2,24 +2,24 @@
  * TimerManager stub for native unit testing (used by scenario tests).
  */
 #include "../../src/timers.h"
-#include "../../src/valves.h"
+#include "../../src/relays.h"
 
 TimerManager Timers;
 
 void TimerManager::begin() {}
 void TimerManager::check(time_t) {}
 
-bool TimerManager::start(uint8_t valveId, uint32_t) {
-  int8_t index = Valves.findByValveId(valveId);
+bool TimerManager::start(uint8_t relayId, uint32_t) {
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0) return false;
-  Valves.setState(index, true, ValveSource::TIMER);
+  Relays.setState(index, true, RelaySource::TIMER);
   return true;
 }
 
-bool TimerManager::abort(uint8_t valveId) {
-  int8_t index = Valves.findByValveId(valveId);
+bool TimerManager::abort(uint8_t relayId) {
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0) return false;
-  Valves.setState(index, false, ValveSource::NONE);
+  Relays.setState(index, false, RelaySource::NONE);
   return true;
 }
 

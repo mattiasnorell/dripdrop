@@ -31,7 +31,7 @@ void handleConfigExport() {
   loadFileIntoDoc(doc, "settings",   SETTINGS_FILE);
   loadFileIntoDoc(doc, "scenarios",  SCENARIOS_FILE);
   loadFileIntoDoc(doc, "modules",    MODULES_FILE);
-  loadFileIntoDoc(doc, "valveNames", VALVE_NAMES_FILE);
+  loadFileIntoDoc(doc, "relayNames", RELAY_NAMES_FILE);
 
   String output;
   serializeJson(doc, output);
@@ -52,7 +52,7 @@ void handleConfigImport() {
     {"settings",   SETTINGS_FILE},
     {"scenarios",  SCENARIOS_FILE},
     {"modules",    MODULES_FILE},
-    {"valveNames", VALVE_NAMES_FILE},
+    {"relayNames", RELAY_NAMES_FILE},
   };
 
   for (auto& entry : files) {

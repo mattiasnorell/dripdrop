@@ -4,7 +4,7 @@
 
 #include "mqtt.h"
 #include <ArduinoJson.h>
-#include "valves.h"
+#include "relays.h"
 #include "timers.h"
 #include "types.h"
 
@@ -12,12 +12,12 @@ extern String deviceName;
 
 MqttManager Mqtt;
 
-// Helper: convert ValveSource enum to string
-static const char* sourceToString(ValveSource src) {
+// Helper: convert RelaySource enum to string
+static const char* sourceToString(RelaySource src) {
   switch (src) {
-    case ValveSource::MANUAL:   return "MANUAL";
-    case ValveSource::TIMER:    return "TIMER";
-    case ValveSource::SCENARIO: return "SCENARIO";
+    case RelaySource::MANUAL:   return "MANUAL";
+    case RelaySource::TIMER:    return "TIMER";
+    case RelaySource::SCENARIO: return "SCENARIO";
     default:                    return "NONE";
   }
 }
@@ -67,7 +67,7 @@ void MqttManager::loop(unsigned long now) {
 
     if (now - _lastStatePublish >= MQTT_STATE_INTERVAL_MS) {
       _lastStatePublish = now;
-      publishAllValveStates();
+      publishAllRelayStates();
       publishSystemStatus();
     }
   }
@@ -96,7 +96,7 @@ void MqttManager::reconnect(unsigned long now) {
     DEBUG_PRINTLN(F("[MQTT] Connected"));
     publishAvailability();
     subscribe();
-    publishAllValveStates();
+    publishAllRelayStates();
     publishSystemStatus();
     _lastStatePublish = now;
   } else {
@@ -105,13 +105,13 @@ void MqttManager::reconnect(unsigned long now) {
 }
 
 void MqttManager::subscribe() {
-  String valveTopic = _topicPrefix + "/valve/+/set";
+  String relayTopic = _topicPrefix + "/relay/+/set";
   String timerTopic = _topicPrefix + "/timer/+/set";
 
-  _mqttClient.subscribe(valveTopic.c_str());
+  _mqttClient.subscribe(relayTopic.c_str());
   _mqttClient.subscribe(timerTopic.c_str());
 
-  DEBUG_PRINTF("[MQTT] Subscribed to %s\n", valveTopic.c_str());
+  DEBUG_PRINTF("[MQTT] Subscribed to %s\n", relayTopic.c_str());
   DEBUG_PRINTF("[MQTT] Subscribed to %s\n", timerTopic.c_str());
 }
 
@@ -131,82 +131,82 @@ void MqttManager::onMessage(char* topic, byte* payload, unsigned int length) {
   if (!t.startsWith(prefix)) return;
   String relative = t.substring(prefix.length());
 
-  // Parse: valve/{id}/set
-  if (relative.startsWith("valve/") && relative.endsWith("/set")) {
+  // Parse: relay/{id}/set
+  if (relative.startsWith("relay/") && relative.endsWith("/set")) {
     String idStr = relative.substring(6, relative.length() - 4);
-    uint8_t valveId = idStr.toInt();
-    int8_t index = Valves.findByValveId(valveId);
+    uint8_t relayId = idStr.toInt();
+    int8_t index = Relays.findByRelayId(relayId);
     if (index < 0) return;
 
     if (strcasecmp(msg, "ON") == 0) {
-      Valves.setState(index, true, ValveSource::MANUAL);
+      Relays.setState(index, true, RelaySource::MANUAL);
     } else if (strcasecmp(msg, "OFF") == 0) {
-      Timers.abort(valveId);
-      Valves.setState(index, false, ValveSource::NONE);
+      Timers.abort(relayId);
+      Relays.setState(index, false, RelaySource::NONE);
     }
-    publishValveState(valveId);
+    publishRelayState(relayId);
     return;
   }
 
   // Parse: timer/{id}/set
   if (relative.startsWith("timer/") && relative.endsWith("/set")) {
     String idStr = relative.substring(6, relative.length() - 4);
-    uint8_t valveId = idStr.toInt();
-    if (!Valves.isValidId(valveId)) return;
+    uint8_t relayId = idStr.toInt();
+    if (!Relays.isValidId(relayId)) return;
 
     if (strcasecmp(msg, "ABORT") == 0) {
-      Timers.abort(valveId);
+      Timers.abort(relayId);
     } else {
       JsonDocument doc;
       if (deserializeJson(doc, msg) == DeserializationError::Ok && doc["duration"].is<int>()) {
         uint32_t duration = doc["duration"];
         if (duration > 0 && duration <= MAX_TIMER_DURATION_SEC) {
-          Timers.start(valveId, duration);
+          Timers.start(relayId, duration);
         }
       }
     }
-    publishValveState(valveId);
+    publishRelayState(relayId);
     return;
   }
 }
 
-void MqttManager::publishValveState(uint8_t valveId) {
+void MqttManager::publishRelayState(uint8_t relayId) {
   if (!_mqttClient.connected()) return;
 
-  int8_t index = Valves.findByValveId(valveId);
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0) return;
 
-  const Valve* valve = Valves.getValve(index);
-  if (!valve) return;
+  const Relay* relay = Relays.getRelay(index);
+  if (!relay) return;
 
   // Build the payload on the stack to avoid per-call heap allocation.
   char payload[128];
   int n = snprintf(payload, sizeof(payload),
                    "{\"isOn\":%s,\"source\":\"%s\"",
-                   valve->isOn ? "true" : "false",
-                   sourceToString(valve->source));
-  if (valve->lastRunStart > 0 && n < (int)sizeof(payload)) {
+                   relay->isOn ? "true" : "false",
+                   sourceToString(relay->source));
+  if (relay->lastRunStart > 0 && n < (int)sizeof(payload)) {
     n += snprintf(payload + n, sizeof(payload) - n,
-                  ",\"lastRunStart\":%ld", (long)valve->lastRunStart);
+                  ",\"lastRunStart\":%ld", (long)relay->lastRunStart);
   }
   time_t now = time(nullptr);
-  if (Timers.isActive(valveId, now) && n < (int)sizeof(payload)) {
+  if (Timers.isActive(relayId, now) && n < (int)sizeof(payload)) {
     n += snprintf(payload + n, sizeof(payload) - n,
                   ",\"timerRemaining\":%lu",
-                  (unsigned long)Timers.getRemainingSeconds(valveId, now));
+                  (unsigned long)Timers.getRemainingSeconds(relayId, now));
   }
   if (n < (int)sizeof(payload)) {
     snprintf(payload + n, sizeof(payload) - n, "}");
   }
 
   char topic[64];
-  snprintf(topic, sizeof(topic), "%s/valve/%d/state", _topicPrefix.c_str(), valveId);
+  snprintf(topic, sizeof(topic), "%s/relay/%d/state", _topicPrefix.c_str(), relayId);
   _mqttClient.publish(topic, payload, true);
 }
 
-void MqttManager::publishAllValveStates() {
-  for (uint8_t i = 1; i <= NUM_VALVES; i++) {
-    publishValveState(i);
+void MqttManager::publishAllRelayStates() {
+  for (uint8_t i = 1; i <= NUM_RELAYS; i++) {
+    publishRelayState(i);
   }
 }
 
@@ -215,12 +215,12 @@ void MqttManager::publishSystemStatus() {
 
   char payload[160];
   snprintf(payload, sizeof(payload),
-           "{\"uptime\":%lu,\"freeHeap\":%lu,\"wifi\":%d,\"ntp\":%s,\"valves\":%u}",
+           "{\"uptime\":%lu,\"freeHeap\":%lu,\"wifi\":%d,\"ntp\":%s,\"relays\":%u}",
            (unsigned long)millis(),
            (unsigned long)ESP.getFreeHeap(),
            (int)WiFi.RSSI(),
            (time(nullptr) > MIN_VALID_UNIX_TIME) ? "true" : "false",
-           (unsigned)Valves.getActiveCount());
+           (unsigned)Relays.getActiveCount());
 
   char topic[64];
   snprintf(topic, sizeof(topic), "%s/system/state", _topicPrefix.c_str());

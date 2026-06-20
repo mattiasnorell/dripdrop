@@ -3,7 +3,7 @@
  */
 
 #include "scenarios.h"
-#include "valves.h"
+#include "relays.h"
 #include "timers.h"
 #include "modules.h"
 #include "mqtt.h"
@@ -196,18 +196,18 @@ const char *ScenarioManager::validate(const JsonObject &input) const
 
   for (JsonObject action : actions)
   {
-    const char *type = action["type"] | "valve"; // default for backward compat
+    const char *type = action["type"] | "relay"; // default for backward compat
 
-    if (strcmp(type, "valve") == 0)
+    if (strcmp(type, "relay") == 0)
     {
-      if (!action["valveId"].is<int>())
+      if (!action["relayId"].is<int>())
       {
-        return "Action missing 'valveId'";
+        return "Action missing 'relayId'";
       }
-      int valveId = action["valveId"];
-      if (!Valves.isValidId(valveId))
+      int relayId = action["relayId"];
+      if (!Relays.isValidId(relayId))
       {
-        return "Invalid valveId in action";
+        return "Invalid relayId in action";
       }
       const char *state = action["state"];
       if (!state || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0))
@@ -622,28 +622,28 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
 {
   for (JsonObject action : actions)
   {
-    const char *type = action["type"] | "valve"; // default for backward compat
+    const char *type = action["type"] | "relay"; // default for backward compat
 
-    if (strcmp(type, "valve") == 0)
+    if (strcmp(type, "relay") == 0)
     {
-      uint8_t valveId = action["valveId"];
+      uint8_t relayId = action["relayId"];
       const char *state = action["state"];
 
-      int8_t index = Valves.findByValveId(valveId);
+      int8_t index = Relays.findByRelayId(relayId);
       if (index < 0)
         continue;
 
-      const Valve *valve = Valves.getValve(index);
-      if (!valve)
+      const Relay *relay = Relays.getRelay(index);
+      if (!relay)
         continue;
 
       // Respect priority: Manual > Timer > Scenario
-      // A valve already in SCENARIO source is re-assignable by another scenario
-      if (valve->isManuallyControlled() || valve->isTimerControlled())
+      // A relay already in SCENARIO source is re-assignable by another scenario
+      if (relay->isManuallyControlled() || relay->isTimerControlled())
       {
-        DEBUG_SCENARIO("Skipping valve %d — overridden by %s\n",
-                       valveId,
-                       valve->isManuallyControlled() ? "manual" : "timer");
+        DEBUG_SCENARIO("Skipping relay %d — overridden by %s\n",
+                       relayId,
+                       relay->isManuallyControlled() ? "manual" : "timer");
         continue;
       }
 
@@ -656,19 +656,19 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         }
         if (duration > 0)
         {
-          Timers.start(valveId, duration);
+          Timers.start(relayId, duration);
         }
-        Valves.setState(index, true, ValveSource::SCENARIO);
-        Mqtt.publishValveState(valveId);
-        DEBUG_SCENARIO("Valve %d ON for %d sec\n", valveId, duration);
+        Relays.setState(index, true, RelaySource::SCENARIO);
+        Mqtt.publishRelayState(relayId);
+        DEBUG_SCENARIO("Relay %d ON for %d sec\n", relayId, duration);
       }
       else
       {
         // state == "off"
-        Timers.abort(valveId);
-        Valves.setState(index, false, ValveSource::NONE);
-        Mqtt.publishValveState(valveId);
-        DEBUG_SCENARIO("Valve %d OFF\n", valveId);
+        Timers.abort(relayId);
+        Relays.setState(index, false, RelaySource::NONE);
+        Mqtt.publishRelayState(relayId);
+        DEBUG_SCENARIO("Relay %d OFF\n", relayId);
       }
     }
     else if (strcmp(type, "callUrl") == 0)

@@ -14,10 +14,10 @@
 // =============================================================================
 
 /**
- * Source of valve control - tracks WHY a valve is on
+ * Source of relay control - tracks WHY a relay is on
  */
-enum class ValveSource : uint8_t {
-  NONE = 0,      // Valve is off
+enum class RelaySource : uint8_t {
+  NONE = 0,      // Relay is off
   SCENARIO,      // Controlled by scenario automation
   TIMER,         // Controlled by one-time timer
   MANUAL         // Manually controlled via API
@@ -28,28 +28,28 @@ enum class ValveSource : uint8_t {
 // =============================================================================
 
 /**
- * Valve runtime state
+ * Relay runtime state
  */
-struct Valve {
-  uint8_t id;              // 1-based valve ID for API compatibility
+struct Relay {
+  uint8_t id;              // 1-based relay ID for API compatibility
   uint8_t pin;             // GPIO pin number
   time_t lastRunStart;     // Unix timestamp of last activation
   time_t lastRunEnd;       // Unix timestamp of last deactivation
-  ValveSource source;      // Current control source
+  RelaySource source;      // Current control source
   bool isOn;               // Current state (cached for efficiency)
   char customName[32];     // User-defined name, empty string if not set
 
   // Helper methods
-  inline bool isManuallyControlled() const { return source == ValveSource::MANUAL; }
-  inline bool isScenarioControlled() const { return source == ValveSource::SCENARIO; }
-  inline bool isTimerControlled() const { return source == ValveSource::TIMER; }
+  inline bool isManuallyControlled() const { return source == RelaySource::MANUAL; }
+  inline bool isScenarioControlled() const { return source == RelaySource::SCENARIO; }
+  inline bool isTimerControlled() const { return source == RelaySource::TIMER; }
 };
 
 /**
- * One-time timer for temporary valve activation
+ * One-time timer for temporary relay activation
  */
 struct Timer {
-  uint8_t valveId;       // Associated valve (1-based)
+  uint8_t relayId;       // Associated relay (1-based)
   time_t endTime;        // Unix timestamp when timer expires, -1 if inactive
 
   inline bool isActive(time_t now) const { return endTime > 0 && endTime > now; }
@@ -66,7 +66,7 @@ struct SystemStatus {
   bool wifiConnected;        // WiFi connection status
   bool ntpSynced;            // NTP time synchronization status
   bool apMode;               // Running in Access Point mode
-  uint8_t activeValves;      // Number of currently active valves
+  uint8_t activeRelays;      // Number of currently active relays
   uint8_t activeScenarios;   // Number of configured scenarios
   time_t currentTime;        // Current system time
 };

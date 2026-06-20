@@ -27,7 +27,7 @@ void handleSystemStatus() {
   doc["apMode"] = status.apMode;
   doc["ntpSynced"] = status.ntpSynced;
   doc["currentTime"] = status.currentTime;
-  doc["activeValves"] = status.activeValves;
+  doc["activeRelays"] = status.activeRelays;
   doc["activeScenarios"] = status.activeScenarios;
 
   String output;

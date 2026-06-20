@@ -1,5 +1,5 @@
 #include "display.h"
-#include "valves.h"
+#include "relays.h"
 #include <time.h>
 
 DisplayController Display;
@@ -59,8 +59,8 @@ void DisplayController::update(time_t now, bool apMode, const String& ip) {
 
     if (DISPLAY_BACKLIGHT_TIMEOUT_SECS > 0) {
         bool anyActive = false;
-        for (uint8_t i = 0; i < NUM_VALVES; i++) {
-            const Valve* v = Valves.getValve(i);
+        for (uint8_t i = 0; i < NUM_RELAYS; i++) {
+            const Relay* v = Relays.getRelay(i);
             if (v && v->isOn) { anyActive = true; break; }
         }
         if (anyActive) _lastActivity = ms;
@@ -98,13 +98,13 @@ void DisplayController::renderRow2(time_t now) {
 }
 
 void DisplayController::renderRow3() {
-    static_assert(NUM_VALVES == 4, "renderRow3 is hardcoded for 4 valves");
+    static_assert(NUM_RELAYS == 4, "renderRow3 is hardcoded for 4 relays");
     char v[4];
     for (uint8_t i = 0; i < 4; i++) {
-        const Valve* vp = Valves.getValve(i);
+        const Relay* vp = Relays.getRelay(i);
         v[i] = (vp && vp->isOn) ? 'X' : '-';
     }
     char buf[21];
-    snprintf(buf, sizeof(buf), "Vlv. 1:%c 2:%c 3:%c 4:%c", v[0], v[1], v[2], v[3]);
+    snprintf(buf, sizeof(buf), "Rly. 1:%c 2:%c 3:%c 4:%c", v[0], v[1], v[2], v[3]);
     writeRow(3, buf);
 }

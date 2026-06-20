@@ -3,7 +3,7 @@
  */
 
 #include "timers.h"
-#include "valves.h"
+#include "relays.h"
 #include "mqtt.h"
 
 // Global instance
@@ -11,9 +11,9 @@ TimerManager Timers;
 
 void TimerManager::begin()
 {
-  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  for (uint8_t i = 0; i < NUM_RELAYS; i++)
   {
-    _timers[i].valveId = i + 1;
+    _timers[i].relayId = i + 1;
     _timers[i].endTime = -1; // Inactive
   }
   DEBUG_PRINTLN(F("Timers initialized"));
@@ -21,51 +21,51 @@ void TimerManager::begin()
 
 void TimerManager::check(time_t currentTime)
 {
-  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  for (uint8_t i = 0; i < NUM_RELAYS; i++)
   {
     if (_timers[i].endTime < 0)
       continue; // Inactive timer
 
-    Valve *valve = Valves.getValve(i);
-    if (!valve)
+    Relay *relay = Relays.getRelay(i);
+    if (!relay)
       continue;
 
     if (_timers[i].endTime > currentTime)
     {
-      // Timer still active - ensure valve is on
+      // Timer still active - ensure relay is on
       // Accept both TIMER and SCENARIO as valid sources (scenario uses timer for auto-shutoff)
-      if (!valve->isOn)
+      if (!relay->isOn)
       {
-        Valves.setState(i, true, ValveSource::TIMER);
+        Relays.setState(i, true, RelaySource::TIMER);
       }
     }
     else
     {
-      // Timer expired - turn off valve
-      uint8_t valveId = _timers[i].valveId;
-      DEBUG_PRINTF("Timer expired for valve %d\n", valveId);
+      // Timer expired - turn off relay
+      uint8_t relayId = _timers[i].relayId;
+      DEBUG_PRINTF("Timer expired for relay %d\n", relayId);
       _timers[i].endTime = -1;
 
       char det[32];
-      snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
+      snprintf(det, sizeof(det), "{\"relayId\":%d}", relayId);
       Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_EXPIRE, det);
 
       // Only turn off if not manually controlled
-      if (!valve->isManuallyControlled())
+      if (!relay->isManuallyControlled())
       {
-        Valves.setState(i, false, ValveSource::NONE);
+        Relays.setState(i, false, RelaySource::NONE);
       }
-      Mqtt.publishValveState(valveId);
+      Mqtt.publishRelayState(relayId);
     }
   }
 }
 
-bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds)
+bool TimerManager::start(uint8_t relayId, uint32_t durationSeconds)
 {
-  int8_t index = Valves.findByValveId(valveId);
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0)
   {
-    DEBUG_PRINTF("Timer start failed: invalid valveId %d\n", valveId);
+    DEBUG_PRINTF("Timer start failed: invalid relayId %d\n", relayId);
     return false;
   }
 
@@ -78,22 +78,22 @@ bool TimerManager::start(uint8_t valveId, uint32_t durationSeconds)
   time_t now = time(nullptr);
   _timers[index].endTime = now + durationSeconds;
 
-  // Start the valve immediately
-  Valves.setState(index, true, ValveSource::TIMER);
+  // Start the relay immediately
+  Relays.setState(index, true, RelaySource::TIMER);
 
-  DEBUG_PRINTF("Timer started for valve %d: %lu seconds (ends at %ld)\n",
-               valveId, durationSeconds, _timers[index].endTime);
+  DEBUG_PRINTF("Timer started for relay %d: %lu seconds (ends at %ld)\n",
+               relayId, durationSeconds, _timers[index].endTime);
 
   char det[64];
-  snprintf(det, sizeof(det), "{\"valveId\":%d,\"duration\":%lu}", valveId, (unsigned long)durationSeconds);
+  snprintf(det, sizeof(det), "{\"relayId\":%d,\"duration\":%lu}", relayId, (unsigned long)durationSeconds);
   Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_START, det);
 
   return true;
 }
 
-bool TimerManager::abort(uint8_t valveId)
+bool TimerManager::abort(uint8_t relayId)
 {
-  int8_t index = Valves.findByValveId(valveId);
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0)
   {
     return false;
@@ -106,16 +106,16 @@ bool TimerManager::abort(uint8_t valveId)
 
   _timers[index].endTime = -1;
 
-  Valve *valve = Valves.getValve(index);
-  if (valve && !valve->isManuallyControlled())
+  Relay *relay = Relays.getRelay(index);
+  if (relay && !relay->isManuallyControlled())
   {
-    Valves.setState(index, false, ValveSource::NONE);
+    Relays.setState(index, false, RelaySource::NONE);
   }
 
-  DEBUG_PRINTF("Timer aborted for valve %d\n", valveId);
+  DEBUG_PRINTF("Timer aborted for relay %d\n", relayId);
 
   char det[32];
-  snprintf(det, sizeof(det), "{\"valveId\":%d}", valveId);
+  snprintf(det, sizeof(det), "{\"relayId\":%d}", relayId);
   Mqtt.publishEvent(LogLevel::INFO, LogEvent::TIMER_ABORT, det);
 
   return true;
@@ -123,40 +123,40 @@ bool TimerManager::abort(uint8_t valveId)
 
 void TimerManager::abortAll()
 {
-  for (uint8_t i = 0; i < NUM_VALVES; i++)
+  for (uint8_t i = 0; i < NUM_RELAYS; i++)
   {
     if (_timers[i].endTime >= 0)
     {
-      abort(_timers[i].valveId);
+      abort(_timers[i].relayId);
     }
   }
 }
 
 Timer *TimerManager::get(uint8_t index)
 {
-  if (index >= NUM_VALVES)
+  if (index >= NUM_RELAYS)
     return nullptr;
   return &_timers[index];
 }
 
 const Timer *TimerManager::get(uint8_t index) const
 {
-  if (index >= NUM_VALVES)
+  if (index >= NUM_RELAYS)
     return nullptr;
   return &_timers[index];
 }
 
-bool TimerManager::isActive(uint8_t valveId, time_t currentTime) const
+bool TimerManager::isActive(uint8_t relayId, time_t currentTime) const
 {
-  int8_t index = Valves.findByValveId(valveId);
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0)
     return false;
   return _timers[index].isActive(currentTime);
 }
 
-uint32_t TimerManager::getRemainingSeconds(uint8_t valveId, time_t currentTime) const
+uint32_t TimerManager::getRemainingSeconds(uint8_t relayId, time_t currentTime) const
 {
-  int8_t index = Valves.findByValveId(valveId);
+  int8_t index = Relays.findByRelayId(relayId);
   if (index < 0)
     return 0;
 

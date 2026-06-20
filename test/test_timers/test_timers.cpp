@@ -5,12 +5,12 @@
  * override, and query methods (isActive, getRemainingSeconds, get).
  */
 #include <unity.h>
-#include "../../src/valves.h"
+#include "../../src/relays.h"
 #include "../../src/timers.h"
 
-// Include stubs (valve stub) and real timer implementation
+// Include stubs (relay stub) and real timer implementation
 #include "../stubs/stubs_common.cpp"
-#include "../stubs/stubs_valves.cpp"
+#include "../stubs/stubs_relays.cpp"
 #include "../stubs/stubs_mqtt.cpp"
 #include "../../src/timers.cpp"
 
@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 void setUp(void) {
-  Valves.begin();
+  Relays.begin();
   Timers.begin();
 }
 
@@ -30,69 +30,69 @@ void tearDown(void) {}
 // ---------------------------------------------------------------------------
 
 void test_start_valid(void) {
-  bool ok = Timers.start(1, 600);  // valve 1, 10 minutes
+  bool ok = Timers.start(1, 600);  // relay 1, 10 minutes
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_TRUE(Valves.getState(0));  // valve index 0 is on
+  TEST_ASSERT_TRUE(Relays.getState(0));  // relay index 0 is on
 
-  Valve* v = Valves.getValve(0);
-  TEST_ASSERT_EQUAL(ValveSource::TIMER, v->source);
+  Relay* v = Relays.getRelay(0);
+  TEST_ASSERT_EQUAL(RelaySource::TIMER, v->source);
 }
 
-void test_start_invalid_valve_zero(void) {
+void test_start_invalid_relay_zero(void) {
   bool ok = Timers.start(0, 600);
   TEST_ASSERT_FALSE(ok);
 }
 
-void test_start_invalid_valve_too_high(void) {
-  bool ok = Timers.start(NUM_VALVES + 1, 600);
+void test_start_invalid_relay_too_high(void) {
+  bool ok = Timers.start(NUM_RELAYS + 1, 600);
   TEST_ASSERT_FALSE(ok);
 }
 
 void test_start_duration_zero(void) {
   bool ok = Timers.start(1, 0);
   TEST_ASSERT_FALSE(ok);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 }
 
 void test_start_duration_exceeds_max(void) {
   bool ok = Timers.start(1, MAX_TIMER_DURATION_SEC + 1);
   TEST_ASSERT_FALSE(ok);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 }
 
 // ---------------------------------------------------------------------------
 // check() tests
 // ---------------------------------------------------------------------------
 
-void test_check_active_timer_keeps_valve_on(void) {
+void test_check_active_timer_keeps_relay_on(void) {
   Timers.start(1, 600);
   time_t now = time(nullptr);
 
   // Check while timer is still active
   Timers.check(now + 300);
-  TEST_ASSERT_TRUE(Valves.getState(0));
+  TEST_ASSERT_TRUE(Relays.getState(0));
 }
 
-void test_check_active_timer_turns_valve_on_if_off(void) {
+void test_check_active_timer_turns_relay_on_if_off(void) {
   Timers.start(1, 600);
   time_t now = time(nullptr);
 
-  // Externally turn valve off (simulating something turning it off)
-  Valves.setState(0, false, ValveSource::NONE);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  // Externally turn relay off (simulating something turning it off)
+  Relays.setState(0, false, RelaySource::NONE);
+  TEST_ASSERT_FALSE(Relays.getState(0));
 
   // check() should turn it back on
   Timers.check(now + 100);
-  TEST_ASSERT_TRUE(Valves.getState(0));
+  TEST_ASSERT_TRUE(Relays.getState(0));
 }
 
-void test_check_expired_timer_turns_valve_off(void) {
+void test_check_expired_timer_turns_relay_off(void) {
   Timers.start(1, 600);
   time_t now = time(nullptr);
 
   // Check after timer has expired
   Timers.check(now + 601);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 
   // Timer should now be inactive
   TEST_ASSERT_FALSE(Timers.isActive(1, now + 601));
@@ -102,20 +102,20 @@ void test_check_expired_timer_manual_override(void) {
   Timers.start(1, 600);
   time_t now = time(nullptr);
 
-  // Switch valve to manual control
-  Valves.setState(0, true, ValveSource::MANUAL);
+  // Switch relay to manual control
+  Relays.setState(0, true, RelaySource::MANUAL);
 
-  // Timer expires — valve should stay on because it's manually controlled
+  // Timer expires — relay should stay on because it's manually controlled
   Timers.check(now + 601);
-  TEST_ASSERT_TRUE(Valves.getState(0));
-  TEST_ASSERT_EQUAL(ValveSource::MANUAL, Valves.getValve(0)->source);
+  TEST_ASSERT_TRUE(Relays.getState(0));
+  TEST_ASSERT_EQUAL(RelaySource::MANUAL, Relays.getRelay(0)->source);
 }
 
 void test_check_inactive_timer_no_change(void) {
-  // No timer started — valve should remain off
+  // No timer started — relay should remain off
   time_t now = time(nullptr);
   Timers.check(now);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 }
 
 void test_check_multiple_timers_one_expires(void) {
@@ -125,8 +125,8 @@ void test_check_multiple_timers_one_expires(void) {
 
   // At now+400: timer 1 expired, timer 2 still active
   Timers.check(now + 400);
-  TEST_ASSERT_FALSE(Valves.getState(0));  // valve 1 off
-  TEST_ASSERT_TRUE(Valves.getState(1));   // valve 2 still on
+  TEST_ASSERT_FALSE(Relays.getState(0));  // relay 1 off
+  TEST_ASSERT_TRUE(Relays.getState(1));   // relay 2 still on
 }
 
 // ---------------------------------------------------------------------------
@@ -135,20 +135,20 @@ void test_check_multiple_timers_one_expires(void) {
 
 void test_abort_active_timer(void) {
   Timers.start(1, 600);
-  TEST_ASSERT_TRUE(Valves.getState(0));
+  TEST_ASSERT_TRUE(Relays.getState(0));
 
   bool ok = Timers.abort(1);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 }
 
 void test_abort_inactive_timer(void) {
-  // No timer started for valve 1
+  // No timer started for relay 1
   bool ok = Timers.abort(1);
   TEST_ASSERT_FALSE(ok);
 }
 
-void test_abort_invalid_valve(void) {
+void test_abort_invalid_relay(void) {
   bool ok = Timers.abort(0);
   TEST_ASSERT_FALSE(ok);
 }
@@ -156,13 +156,13 @@ void test_abort_invalid_valve(void) {
 void test_abort_manual_override(void) {
   Timers.start(1, 600);
   // Switch to manual control
-  Valves.setState(0, true, ValveSource::MANUAL);
+  Relays.setState(0, true, RelaySource::MANUAL);
 
   bool ok = Timers.abort(1);
   TEST_ASSERT_TRUE(ok);
-  // Valve should stay on because it's manually controlled
-  TEST_ASSERT_TRUE(Valves.getState(0));
-  TEST_ASSERT_EQUAL(ValveSource::MANUAL, Valves.getValve(0)->source);
+  // Relay should stay on because it's manually controlled
+  TEST_ASSERT_TRUE(Relays.getState(0));
+  TEST_ASSERT_EQUAL(RelaySource::MANUAL, Relays.getRelay(0)->source);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,15 +176,15 @@ void test_abort_all_multiple_active(void) {
 
   Timers.abortAll();
 
-  TEST_ASSERT_FALSE(Valves.getState(0));
-  TEST_ASSERT_FALSE(Valves.getState(1));
-  TEST_ASSERT_FALSE(Valves.getState(2));
+  TEST_ASSERT_FALSE(Relays.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(1));
+  TEST_ASSERT_FALSE(Relays.getState(2));
 }
 
 void test_abort_all_none_active(void) {
   // Should not crash
   Timers.abortAll();
-  TEST_ASSERT_FALSE(Valves.getState(0));
+  TEST_ASSERT_FALSE(Relays.getState(0));
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ void test_is_active_expired(void) {
   TEST_ASSERT_EQUAL_UINT32(0, Timers.getRemainingSeconds(1, now + 601));
 }
 
-void test_is_active_invalid_valve(void) {
+void test_is_active_invalid_relay(void) {
   TEST_ASSERT_FALSE(Timers.isActive(0, time(nullptr)));
   TEST_ASSERT_EQUAL_UINT32(0, Timers.getRemainingSeconds(0, time(nullptr)));
 }
@@ -220,11 +220,11 @@ void test_is_active_invalid_valve(void) {
 void test_get_valid_index(void) {
   Timer* t = Timers.get(0);
   TEST_ASSERT_NOT_NULL(t);
-  TEST_ASSERT_EQUAL(1, t->valveId);
+  TEST_ASSERT_EQUAL(1, t->relayId);
 }
 
 void test_get_out_of_range(void) {
-  Timer* t = Timers.get(NUM_VALVES);
+  Timer* t = Timers.get(NUM_RELAYS);
   TEST_ASSERT_NULL(t);
 }
 
@@ -237,15 +237,15 @@ int main(int argc, char** argv) {
 
   // start()
   RUN_TEST(test_start_valid);
-  RUN_TEST(test_start_invalid_valve_zero);
-  RUN_TEST(test_start_invalid_valve_too_high);
+  RUN_TEST(test_start_invalid_relay_zero);
+  RUN_TEST(test_start_invalid_relay_too_high);
   RUN_TEST(test_start_duration_zero);
   RUN_TEST(test_start_duration_exceeds_max);
 
   // check()
-  RUN_TEST(test_check_active_timer_keeps_valve_on);
-  RUN_TEST(test_check_active_timer_turns_valve_on_if_off);
-  RUN_TEST(test_check_expired_timer_turns_valve_off);
+  RUN_TEST(test_check_active_timer_keeps_relay_on);
+  RUN_TEST(test_check_active_timer_turns_relay_on_if_off);
+  RUN_TEST(test_check_expired_timer_turns_relay_off);
   RUN_TEST(test_check_expired_timer_manual_override);
   RUN_TEST(test_check_inactive_timer_no_change);
   RUN_TEST(test_check_multiple_timers_one_expires);
@@ -253,7 +253,7 @@ int main(int argc, char** argv) {
   // abort()
   RUN_TEST(test_abort_active_timer);
   RUN_TEST(test_abort_inactive_timer);
-  RUN_TEST(test_abort_invalid_valve);
+  RUN_TEST(test_abort_invalid_relay);
   RUN_TEST(test_abort_manual_override);
 
   // abortAll()
@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
   // isActive() / getRemainingSeconds()
   RUN_TEST(test_is_active_and_remaining);
   RUN_TEST(test_is_active_expired);
-  RUN_TEST(test_is_active_invalid_valve);
+  RUN_TEST(test_is_active_invalid_relay);
 
   // get()
   RUN_TEST(test_get_valid_index);

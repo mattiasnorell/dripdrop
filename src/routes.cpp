@@ -6,7 +6,7 @@
  */
 
 #include "api_utils.h"      // brings in <WebServer.h> + extern WebServer server
-#include <uri/UriBraces.h>  // path-parameter patterns, e.g. UriBraces("/valves/{}")
+#include <uri/UriBraces.h>  // path-parameter patterns, e.g. UriBraces("/relays/{}")
 #include "routes.h"
 
 // =============================================================================
@@ -36,12 +36,12 @@ void handleSystemMqttGet();
 void handleSystemMqttPost();
 void handleSystemWifiGet();
 void handleSystemWifiPost();
-void handleValveList();
-void handleValveState();
-void handleValveUpdate();
-void handleValveOn();
-void handleValveOff();
-void handleValvesAllOff();
+void handleRelayList();
+void handleRelayState();
+void handleRelayUpdate();
+void handleRelayOn();
+void handleRelayOff();
+void handleRelaysAllOff();
 void handleTimerGet();
 void handleTimerPost();
 void handleTimerAbort();
@@ -81,18 +81,18 @@ void setupRoutes() {
   server.on("/system/wifi", HTTP_GET, handleSystemWifiGet);
   server.on("/system/wifi", HTTP_POST, handleSystemWifiPost);
 
-  // Valves
-  server.on("/valves", HTTP_GET, handleValveList);
-  server.on("/valves/off", HTTP_POST, handleValvesAllOff);
-  server.on(UriBraces("/valves/{}/state"), HTTP_GET, handleValveState);
-  server.on(UriBraces("/valves/{}"), HTTP_POST, handleValveUpdate);
-  server.on(UriBraces("/valves/{}/on"), HTTP_POST, handleValveOn);
-  server.on(UriBraces("/valves/{}/off"), HTTP_POST, handleValveOff);
+  // Relays
+  server.on("/relays", HTTP_GET, handleRelayList);
+  server.on("/relays/off", HTTP_POST, handleRelaysAllOff);
+  server.on(UriBraces("/relays/{}/state"), HTTP_GET, handleRelayState);
+  server.on(UriBraces("/relays/{}"), HTTP_POST, handleRelayUpdate);
+  server.on(UriBraces("/relays/{}/on"), HTTP_POST, handleRelayOn);
+  server.on(UriBraces("/relays/{}/off"), HTTP_POST, handleRelayOff);
 
   // Timers
   server.on("/timers", HTTP_GET, handleTimerGet);
-  server.on(UriBraces("/valves/{}/timer"), HTTP_POST, handleTimerPost);
-  server.on(UriBraces("/valves/{}/timer"), HTTP_DELETE, handleTimerAbort);
+  server.on(UriBraces("/relays/{}/timer"), HTTP_POST, handleTimerPost);
+  server.on(UriBraces("/relays/{}/timer"), HTTP_DELETE, handleTimerAbort);
 
   // Scenarios — register /scenarios/{}/run before /scenarios/{} (longer pattern first)
   server.on("/scenarios", HTTP_GET, handleScenarioList);

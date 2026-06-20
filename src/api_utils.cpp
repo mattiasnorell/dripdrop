@@ -4,7 +4,7 @@
 
 #include "api_utils.h"
 #include "config.h"
-#include "valves.h"
+#include "relays.h"
 #include "scenarios.h"
 #include <WiFi.h>
 #include <time.h>
@@ -76,7 +76,7 @@ SystemStatus getSystemStatus() {
   status.apMode = apMode;
   status.ntpSynced = ntpSynced;
   status.currentTime = time(nullptr);
-  status.activeValves = Valves.getActiveCount();
+  status.activeRelays = Relays.getActiveCount();
   status.activeScenarios = Scenarios.count();
   return status;
 }

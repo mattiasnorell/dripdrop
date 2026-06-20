@@ -1,8 +1,8 @@
 /**
  * DripDrop - MQTT Manager
  *
- * Publishes valve states, system status, and sensor readings to an MQTT broker.
- * Subscribes to command topics for remote valve and timer control.
+ * Publishes relay states, system status, and sensor readings to an MQTT broker.
+ * Subscribes to command topics for remote relay and timer control.
  * Uses LWT for availability tracking (online/offline).
  *
  * Disabled by default at runtime (_enabled = false).
@@ -32,9 +32,9 @@ namespace LogEvent
   constexpr const char *MODULE_SAVE = "module.save";
   constexpr const char *MODULE_REMOVED = "module.removed";
   constexpr const char *MODULE_REGISTRATION = "module.registration";
-  constexpr const char *VALVE_ON = "valve.on";
-  constexpr const char *VALVE_OFF = "valve.off";
-  constexpr const char *VALVES_ALL_OFF = "valves.all_off";
+  constexpr const char *RELAY_ON = "relay.on";
+  constexpr const char *RELAY_OFF = "relay.off";
+  constexpr const char *RELAYS_ALL_OFF = "relays.all_off";
   constexpr const char *TIMER_START = "timer.start";
   constexpr const char *TIMER_ABORT = "timer.abort";
   constexpr const char *TIMER_EXPIRE = "timer.expire";
@@ -53,8 +53,8 @@ public:
   void begin();
   void loop(unsigned long now);
 
-  void publishValveState(uint8_t valveId);
-  void publishAllValveStates();
+  void publishRelayState(uint8_t relayId);
+  void publishAllRelayStates();
   void publishSystemStatus();
   void publishSensorReading(const char* uid, float value);
   void publishEvent(const char* level, const char* event, const char* details = nullptr);

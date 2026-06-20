@@ -4,7 +4,7 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 
 ## Features
 
-- Control up to 4 irrigation valves
+- Control up to 4 relays (e.g. driving irrigation valves)
 - Scenario-based if-this-then-that automation (time, day-of-week, sensor conditions)
 - One-time timer support for manual watering sessions
 - REST API for remote control and monitoring
@@ -28,7 +28,7 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 
 ### Default Pin Configuration
 
-| Valve | GPIO Pin |
+| Relay | GPIO Pin |
 |-------|----------|
 | 1     | GPIO 25  |
 | 2     | GPIO 26  |
@@ -45,8 +45,8 @@ dripdrop/
 │   ├── dripdrop.cpp        # Main entry point — setup, loop, route registration
 │   ├── config.h            # Configuration constants and defaults
 │   ├── types.h             # Type definitions, structs, enums
-│   ├── valves.cpp/h        # ValveController — GPIO control, state tracking
-│   ├── timers.cpp/h        # TimerManager — one-shot timed valve activation
+│   ├── relays.cpp/h        # RelayController — GPIO control, state tracking
+│   ├── timers.cpp/h        # TimerManager — one-shot timed relay activation
 │   ├── scenarios.cpp/h     # ScenarioManager — condition/action automation
 │   ├── modules.cpp/h       # ModuleManager — I²C sensor module discovery and readings
 │   ├── mqtt.cpp/h          # MQTT — telemetry publishing and remote control
@@ -74,7 +74,7 @@ dripdrop/
 | `/settings.json` | WiFi, MQTT, device name | `/system/*` API |
 | `/scenarios.json` | Automation scenarios | `/scenarios/*` API |
 | `/modules.json` | Registered I²C sensor modules | `/modules/*` API |
-| `/valve_names.json` | Custom valve display names | `/valves/*` API |
+| `/relay_names.json` | Custom relay display names | `/relays/*` API |
 
 Config files at the root are never touched by a webapp update.
 
@@ -218,7 +218,7 @@ Edit `src/config.h` or create `src/config_local.h` (recommended — gitignored) 
 | `DST_OFFSET_SEC` | `3600` | Daylight saving time offset |
 | `API_AUTH_ENABLED` | `false` | Enable API key authentication |
 | `API_KEY` | `"change-me..."` | API key for authentication |
-| `NUM_VALVES` | `4` | Number of valves |
+| `NUM_RELAYS` | `4` | Number of relays |
 | `MAX_SCENARIOS` | `16` | Maximum number of scenarios |
 | `DEBUG_ENABLED` | `1` | Enable serial debug output |
 
@@ -241,18 +241,22 @@ All endpoints return JSON. POST endpoints accept a JSON body with `Content-Type:
 | POST | `/system/name` | Set device name `{"name": "garden"}` |
 | POST | `/system/reboot` | Reboot device |
 
-### Valves
+### Relays
+
+A relay is the controlled output that switches a load — typically an irrigation valve. The
+firmware drives relays; a frontend may still label them "Valves" for users while calling these
+`/relays` endpoints.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/valves` | List all valves with state and timer info |
-| GET | `/valves/{id}/state` | State of a specific valve |
-| POST | `/valves/{id}` | Update valve settings — body: `{"customName": "Front Garden"}` |
-| POST | `/valves/{id}/on` | Turn valve on manually |
-| POST | `/valves/{id}/off` | Turn valve off, cancel its timer |
-| POST | `/valves/off` | Turn all valves off, cancel all timers |
+| GET | `/relays` | List all relays with state and timer info |
+| GET | `/relays/{id}/state` | State of a specific relay |
+| POST | `/relays/{id}` | Update relay settings — body: `{"customName": "Front Garden"}` |
+| POST | `/relays/{id}/on` | Turn relay on manually |
+| POST | `/relays/{id}/off` | Turn relay off, cancel its timer |
+| POST | `/relays/off` | Turn all relays off, cancel all timers |
 
-Valve list response:
+Relay list response:
 ```json
 [
   {
@@ -272,19 +276,19 @@ Pass `null` or an empty string for `customName` to clear it.
 
 ### Timers
 
-One-time timed valve activation.
+One-time timed relay activation.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/timers` | List all active timers |
-| POST | `/valves/{id}/timer` | Start a timer — body: `{"duration": 300}` |
-| DELETE | `/valves/{id}/timer` | Cancel a timer |
+| POST | `/relays/{id}/timer` | Start a timer — body: `{"duration": 300}` |
+| DELETE | `/relays/{id}/timer` | Cancel a timer |
 
 Duration is in seconds (max 86400 = 24 hours).
 
 ### Scenarios
 
-Scenarios fire valve actions when all conditions are met (AND logic). They use edge detection — a scenario fires once when conditions become true, and resets when they become false.
+Scenarios fire relay actions when all conditions are met (AND logic). They use edge detection — a scenario fires once when conditions become true, and resets when they become false.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -315,7 +319,7 @@ Operators: `gt`, `lt`, `eq`
 **Action fields:**
 
 ```json
-{"valveId": 1, "state": "on", "duration": 600}
+{"relayId": 1, "state": "on", "duration": 600}
 ```
 `duration` (seconds) is required when `state` is `"on"`. Not needed for `"off"`.
 
@@ -328,8 +332,8 @@ Operators: `gt`, `lt`, `eq`
     {"type": "dayOfWeek", "days": [false, true, true, true, true, true, false]}
   ],
   "actions": [
-    {"valveId": 1, "state": "on", "duration": 600},
-    {"valveId": 2, "state": "on", "duration": 300}
+    {"relayId": 1, "state": "on", "duration": 600},
+    {"relayId": 2, "state": "on", "duration": 300}
   ]
 }
 ```
@@ -382,7 +386,7 @@ Reading response (`GET /modules/{uid}/reading`):
 
 ### MQTT
 
-MQTT is optional. When enabled, the device publishes valve state, timers, and events to a broker and subscribes to control topics.
+MQTT is optional. When enabled, the device publishes relay state, timers, and events to a broker and subscribes to control topics.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -404,7 +408,7 @@ MQTT settings body:
 
 | Topic | Description |
 |-------|-------------|
-| `.../valve/{id}/state` | Valve on/off state, source, last run |
+| `.../relay/{id}/state` | Relay on/off state, source, last run |
 | `.../timer/{id}/state` | Timer start/remaining/expire events |
 | `.../sensor/{uid}/state` | Sensor reading `{"value": 22.5}` |
 | `.../system/state` | System health snapshot |
@@ -415,7 +419,7 @@ MQTT settings body:
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `.../valve/+/set` | `{"state": "on"}` / `{"state": "off"}` | Remote valve control |
+| `.../relay/+/set` | `ON` / `OFF` | Remote relay control |
 | `.../timer/+/set` | `{"duration": 300}` | Start a timer |
 
 ### Filesystem
@@ -464,13 +468,13 @@ curl -X POST http://dripdrop.local/ota/upload-fs -F "fs=@build/littlefs.bin"
 
 ## Control Priority
 
-When multiple sources affect the same valve:
+When multiple sources affect the same relay:
 
 1. **Manual** (highest) — API on/off commands
 2. **Timer** — one-shot timed activation
 3. **Scenario** (lowest) — condition-based automation
 
-A manually controlled valve will not be overridden by scenarios or timers until turned off manually.
+A manually controlled relay will not be overridden by scenarios or timers until turned off manually.
 
 ## Troubleshooting
 
@@ -483,10 +487,10 @@ A manually controlled valve will not be overridden by scenarios or timers until 
 - Verify timezone configuration matches your location
 - Scenarios use edge detection — if conditions were already true at boot, they won't fire until conditions reset and become true again
 
-**Valves not switching**
-- Verify relay module is active-LOW (default) or set `VALVE_ACTIVE_HIGH true` in config
+**Relays not switching**
+- Verify relay module is active-LOW (default) or set `RELAY_ACTIVE_HIGH true` in config
 - Check GPIO pin assignments match your wiring
-- Test with `POST /valves/1/on` and monitor serial output
+- Test with `POST /relays/1/on` and monitor serial output
 
 **Serial debug output**
 Connect at 115200 baud. Disable for production with `DEBUG_ENABLED 0` in config.
