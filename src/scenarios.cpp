@@ -133,6 +133,27 @@ const char *ScenarioManager::validate(const JsonObject &input) const
         return "Invalid time values";
       }
     }
+    else if (strcmp(type, "timeRange") == 0)
+    {
+      if (!cond["startHour"].is<int>() || !cond["startMinute"].is<int>() ||
+          !cond["endHour"].is<int>() || !cond["endMinute"].is<int>())
+      {
+        return "timeRange requires startHour, startMinute, endHour, endMinute";
+      }
+      int startHour = cond["startHour"];
+      int startMinute = cond["startMinute"];
+      int endHour = cond["endHour"];
+      int endMinute = cond["endMinute"];
+      if (startHour < 0 || startHour > 23 || endHour < 0 || endHour > 23 ||
+          startMinute < 0 || startMinute > 59 || endMinute < 0 || endMinute > 59)
+      {
+        return "Invalid timeRange values";
+      }
+      if (startHour * 60 + startMinute == endHour * 60 + endMinute)
+      {
+        return "timeRange start and end must differ";
+      }
+    }
     else if (strcmp(type, "dayOfWeek") == 0)
     {
       if (!cond["days"].is<JsonArray>() || cond["days"].size() != 7)
@@ -499,6 +520,22 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
       int hour = cond["hour"];
       int minute = cond["minute"];
       if (timeInfo->tm_hour != hour || timeInfo->tm_min != minute)
+      {
+        return false;
+      }
+    }
+    else if (strcmp(type, "timeRange") == 0)
+    {
+      // Start-inclusive, end-exclusive window in minutes-of-day. When start >=
+      // end the window wraps past midnight (e.g. 22:00-06:00). This is a gate:
+      // the engine's edge detection fires the scenario once on window entry.
+      int startMins = (int)cond["startHour"] * 60 + (int)cond["startMinute"];
+      int endMins = (int)cond["endHour"] * 60 + (int)cond["endMinute"];
+      int nowMins = timeInfo->tm_hour * 60 + timeInfo->tm_min;
+      bool inRange = (startMins < endMins)
+                         ? (nowMins >= startMins && nowMins < endMins)
+                         : (nowMins >= startMins || nowMins < endMins);
+      if (!inRange)
       {
         return false;
       }
