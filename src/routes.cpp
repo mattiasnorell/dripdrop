@@ -6,8 +6,12 @@
  */
 
 #include "api_utils.h"      // brings in <WebServer.h> + extern WebServer server
-#include <uri/UriBraces.h>  // path-parameter patterns, e.g. UriBraces("/relays/{}")
+#include <uri/UriBraces.h>  // path-parameter patterns, e.g. UriBraces("/api/v1/relays/{}")
 #include "routes.h"
+
+// Every API endpoint lives under this versioned prefix. API "/relays" expands
+// (via string-literal concatenation) to "/api/v1/relays".
+#define API "/api/v1"
 
 // =============================================================================
 // Forward Declarations — HTTP Handlers (defined in handlers_*.cpp)
@@ -68,64 +72,64 @@ void setupRoutes() {
   server.on("/", HTTP_GET, handleRoot);
 
   // System
-  server.on("/system/status", HTTP_GET, handleSystemStatus);
-  server.on("/system/ip", HTTP_GET, handleSystemIp);
-  server.on("/system/ping", HTTP_GET, handleSystemPing);
-  server.on("/system/time", HTTP_GET, handleSystemTime);
-  server.on("/system/time", HTTP_POST, handleSystemTimePost);
-  server.on("/system/reboot", HTTP_POST, handleSystemReboot);
-  server.on("/system/name", HTTP_GET, handleSystemNameGet);
-  server.on("/system/name", HTTP_POST, handleSystemNamePost);
-  server.on("/system/mqtt", HTTP_GET, handleSystemMqttGet);
-  server.on("/system/mqtt", HTTP_POST, handleSystemMqttPost);
-  server.on("/system/wifi", HTTP_GET, handleSystemWifiGet);
-  server.on("/system/wifi", HTTP_POST, handleSystemWifiPost);
+  server.on(API "/system/status", HTTP_GET, handleSystemStatus);
+  server.on(API "/system/ip", HTTP_GET, handleSystemIp);
+  server.on(API "/system/ping", HTTP_GET, handleSystemPing);
+  server.on(API "/system/time", HTTP_GET, handleSystemTime);
+  server.on(API "/system/time", HTTP_POST, handleSystemTimePost);
+  server.on(API "/system/reboot", HTTP_POST, handleSystemReboot);
+  server.on(API "/system/name", HTTP_GET, handleSystemNameGet);
+  server.on(API "/system/name", HTTP_POST, handleSystemNamePost);
+  server.on(API "/system/mqtt", HTTP_GET, handleSystemMqttGet);
+  server.on(API "/system/mqtt", HTTP_POST, handleSystemMqttPost);
+  server.on(API "/system/wifi", HTTP_GET, handleSystemWifiGet);
+  server.on(API "/system/wifi", HTTP_POST, handleSystemWifiPost);
 
   // Relays
-  server.on("/relays", HTTP_GET, handleRelayList);
-  server.on("/relays/off", HTTP_POST, handleRelaysAllOff);
-  server.on(UriBraces("/relays/{}/state"), HTTP_GET, handleRelayState);
-  server.on(UriBraces("/relays/{}"), HTTP_POST, handleRelayUpdate);
-  server.on(UriBraces("/relays/{}/on"), HTTP_POST, handleRelayOn);
-  server.on(UriBraces("/relays/{}/off"), HTTP_POST, handleRelayOff);
+  server.on(API "/relays", HTTP_GET, handleRelayList);
+  server.on(API "/relays/off", HTTP_POST, handleRelaysAllOff);
+  server.on(UriBraces(API "/relays/{}/state"), HTTP_GET, handleRelayState);
+  server.on(UriBraces(API "/relays/{}"), HTTP_POST, handleRelayUpdate);
+  server.on(UriBraces(API "/relays/{}/on"), HTTP_POST, handleRelayOn);
+  server.on(UriBraces(API "/relays/{}/off"), HTTP_POST, handleRelayOff);
 
   // Timers
-  server.on("/timers", HTTP_GET, handleTimerGet);
-  server.on(UriBraces("/relays/{}/timer"), HTTP_POST, handleTimerPost);
-  server.on(UriBraces("/relays/{}/timer"), HTTP_DELETE, handleTimerAbort);
+  server.on(API "/timers", HTTP_GET, handleTimerGet);
+  server.on(UriBraces(API "/relays/{}/timer"), HTTP_POST, handleTimerPost);
+  server.on(UriBraces(API "/relays/{}/timer"), HTTP_DELETE, handleTimerAbort);
 
   // Scenarios — register /scenarios/{}/run before /scenarios/{} (longer pattern first)
-  server.on("/scenarios", HTTP_GET, handleScenarioList);
-  server.on("/scenarios", HTTP_POST, handleScenarioAdd);
-  server.on(UriBraces("/scenarios/{}/run"), HTTP_POST, handleScenarioRun);
-  server.on(UriBraces("/scenarios/{}"), HTTP_POST, handleScenarioUpdate);
-  server.on(UriBraces("/scenarios/{}"), HTTP_DELETE, handleScenarioDelete);
+  server.on(API "/scenarios", HTTP_GET, handleScenarioList);
+  server.on(API "/scenarios", HTTP_POST, handleScenarioAdd);
+  server.on(UriBraces(API "/scenarios/{}/run"), HTTP_POST, handleScenarioRun);
+  server.on(UriBraces(API "/scenarios/{}"), HTTP_POST, handleScenarioUpdate);
+  server.on(UriBraces(API "/scenarios/{}"), HTTP_DELETE, handleScenarioDelete);
 
   // Modules — register /modules/{}/register before /modules/{} so the longer
   // pattern is tested first by the router
-  server.on("/modules", HTTP_GET, handleModuleList);
-  server.on("/modules/scan", HTTP_POST, handleModuleScan);
-  server.on(UriBraces("/modules/{}/register"), HTTP_POST, handleModuleRegister);
-  server.on(UriBraces("/modules/{}/reading"), HTTP_GET, handleModuleReading);
-  server.on(UriBraces("/modules/{}/command"), HTTP_POST, handleModuleCommand);
-  server.on(UriBraces("/modules/{}"), HTTP_POST, handleModuleUpdate);
-  server.on(UriBraces("/modules/{}"), HTTP_DELETE, handleModuleRemove);
+  server.on(API "/modules", HTTP_GET, handleModuleList);
+  server.on(API "/modules/scan", HTTP_POST, handleModuleScan);
+  server.on(UriBraces(API "/modules/{}/register"), HTTP_POST, handleModuleRegister);
+  server.on(UriBraces(API "/modules/{}/reading"), HTTP_GET, handleModuleReading);
+  server.on(UriBraces(API "/modules/{}/command"), HTTP_POST, handleModuleCommand);
+  server.on(UriBraces(API "/modules/{}"), HTTP_POST, handleModuleUpdate);
+  server.on(UriBraces(API "/modules/{}"), HTTP_DELETE, handleModuleRemove);
 
   // Config backup/restore
-  server.on("/config/export", HTTP_GET,  handleConfigExport);
-  server.on("/config/import", HTTP_POST, handleConfigImport);
+  server.on(API "/config/export", HTTP_GET,  handleConfigExport);
+  server.on(API "/config/import", HTTP_POST, handleConfigImport);
 
   // Filesystem inspection
-  server.on("/fs/info", HTTP_GET, handleFsInfo);
-  server.on("/fs/list", HTTP_GET, handleFsList);
+  server.on(API "/fs/info", HTTP_GET, handleFsInfo);
+  server.on(API "/fs/list", HTTP_GET, handleFsList);
   // Filesystem: clear a directory (used by make ota-webapp before re-upload)
-  server.on("/fs/dir", HTTP_DELETE, handleFsDirDelete);
+  server.on(API "/fs/dir", HTTP_DELETE, handleFsDirDelete);
   // Filesystem: upload a single file (used by make ota-webapp)
-  server.on("/fs/upload", HTTP_POST, handleFsUploadComplete, handleFsUpload);
+  server.on(API "/fs/upload", HTTP_POST, handleFsUploadComplete, handleFsUpload);
 
   // OTA updates (used by make ota-firmware / ota-fs)
-  server.on("/ota/upload",    HTTP_POST, handleOtaUploadComplete,   handleOtaUpload);
-  server.on("/ota/upload-fs", HTTP_POST, handleOtaFsUploadComplete, handleOtaFsUpload);
+  server.on(API "/ota/upload",    HTTP_POST, handleOtaUploadComplete,   handleOtaUpload);
+  server.on(API "/ota/upload-fs", HTTP_POST, handleOtaFsUploadComplete, handleOtaFsUpload);
 
   // Static file serving + SPA fallback (registered last)
   server.onNotFound(handleStaticFile);
