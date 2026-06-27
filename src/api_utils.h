@@ -34,3 +34,7 @@ void sendCorsHeaders();
 bool parseJsonBody(JsonDocument& doc);
 bool checkApiAuth();
 SystemStatus getSystemStatus();
+
+// Shared LittleFS helpers (implemented in handlers_fs.cpp)
+void mkdirRecursive(const String& path);
+void removeDirRecursive(const String& dirPath);

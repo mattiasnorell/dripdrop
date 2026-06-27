@@ -40,6 +40,7 @@ void handleSystemMqttGet();
 void handleSystemMqttPost();
 void handleSystemWifiGet();
 void handleSystemWifiPost();
+void handleSystemUpdate();
 void handleRelayList();
 void handleRelayState();
 void handleRelayUpdate();
@@ -84,6 +85,7 @@ void setupRoutes() {
   server.on(API "/system/mqtt", HTTP_POST, handleSystemMqttPost);
   server.on(API "/system/wifi", HTTP_GET, handleSystemWifiGet);
   server.on(API "/system/wifi", HTTP_POST, handleSystemWifiPost);
+  server.on(API "/system/update", HTTP_POST, handleSystemUpdate);
 
   // Relays
   server.on(API "/relays", HTTP_GET, handleRelayList);

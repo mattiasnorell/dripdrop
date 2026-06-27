@@ -19,7 +19,7 @@ void handleFsUploadComplete() {
   sendJsonResponse(200, "uploaded");
 }
 
-static void mkdirRecursive(const String& path) {
+void mkdirRecursive(const String& path) {
   for (int i = 1; i <= (int)path.length(); i++) {
     if (path[i] == '/' || i == (int)path.length()) {
       String seg = path.substring(0, i);
@@ -30,7 +30,7 @@ static void mkdirRecursive(const String& path) {
   }
 }
 
-static void removeDirRecursive(const String& dirPath) {
+void removeDirRecursive(const String& dirPath) {
   File dir = LittleFS.open(dirPath);
   if (!dir || !dir.isDirectory()) return;
   File entry;

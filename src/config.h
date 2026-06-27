@@ -223,8 +223,22 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.3.0"
+#define FIRMWARE_VERSION "4.3.5"
 #define FIRMWARE_NAME "DripDrop"
+
+// =============================================================================
+// Self-Update (OTA pull)
+// =============================================================================
+
+// Base URL the device pulls updates from (no trailing slash). Expects
+// <UPDATE_BASE_URL>/manifest.json, <UPDATE_BASE_URL>/firmware.bin and
+// <UPDATE_BASE_URL>/webapp/<file> to be available. Override in config_local.h.
+#ifndef UPDATE_BASE_URL
+  #define UPDATE_BASE_URL "https://github.com/mattiasnorell/dripdrop/releases/latest/download"
+#endif
+
+// Per-request timeout for update downloads
+constexpr uint32_t UPDATE_HTTP_TIMEOUT_MS = 15000;
 
 // =============================================================================
 // Storage

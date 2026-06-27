@@ -15,7 +15,7 @@ ModuleManager Modules;
 void ModuleManager::begin()
 {
   Wire.begin();
-  Wire.setTimeout(100); // 100 ms cap — prevents watchdog stalls from absent modules
+  Wire.setTimeOut(100); // 100 ms cap — prevents watchdog stalls from absent modules
   _discoveredCount = 0; // Clear any previous scan results
   DEBUG_PRINTLN(F("[MODULE] I2C bus initialized"));
   load();
