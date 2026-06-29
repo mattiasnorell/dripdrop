@@ -148,7 +148,9 @@ constexpr uint16_t MAX_SCENARIO_DURATION_SEC = 14400;
 
 // callUrl action limits
 constexpr uint8_t  CALL_URL_QUEUE_SIZE      = 4;
-constexpr uint32_t CALL_URL_TIMEOUT_MS      = 8000;
+// Kept well under WATCHDOG_TIMEOUT_MS so a single slow/unreachable host can't
+// trip the task watchdog; drainCallUrlQueue() also pets the watchdog per request.
+constexpr uint32_t CALL_URL_TIMEOUT_MS      = 4000;
 constexpr uint16_t CALL_URL_MAX_URL_LEN     = 256;
 constexpr uint16_t CALL_URL_MAX_HEADERS_LEN = 512;
 constexpr uint16_t CALL_URL_MAX_BODY_LEN    = 512;
@@ -223,7 +225,7 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.3.5"
+#define FIRMWARE_VERSION "4.5.0"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

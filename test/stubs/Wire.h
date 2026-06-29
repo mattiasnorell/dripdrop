@@ -26,6 +26,7 @@ public:
 
   void begin() {}
   void setTimeout(uint16_t) {}
+  void setTimeOut(uint16_t) {} // Arduino's actual spelling (capital O)
 
   /** Start a transmission to addr. */
   void beginTransmission(uint8_t addr) {

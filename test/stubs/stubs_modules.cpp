@@ -34,8 +34,8 @@ void    ModuleManager::begin()                              {}
 uint8_t ModuleManager::scanModules()                        { return 0; }
 bool    ModuleManager::registerModule(const char*)          { return false; }
 bool    ModuleManager::removeModule(const char*)            { return false; }
-bool    ModuleManager::setCustomName(const char*, const char*) { return true; }
-bool    ModuleManager::setUnit(const char*, const char*)       { return true; }
+bool    ModuleManager::setCustomName(const char*, const char*, bool) { return true; }
+bool    ModuleManager::setUnit(const char*, const char*, bool)       { return true; }
 bool    ModuleManager::commandModule(uint8_t, uint8_t)         { return false; }
 
 uint8_t ModuleManager::addrForUid(const char* uid) const {

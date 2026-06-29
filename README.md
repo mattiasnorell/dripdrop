@@ -288,7 +288,7 @@ Duration is in seconds (max 86400 = 24 hours).
 
 ### Scenarios
 
-Scenarios fire relay actions when all conditions are met (AND logic). They use edge detection — a scenario fires once when conditions become true, and resets when they become false.
+Scenarios fire relay actions when all conditions are met (AND logic). By default they use edge detection — a scenario fires once when conditions become true, and resets when they become false. Set the optional `repeatInterval` field to re-fire while conditions stay true (see below).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -322,6 +322,25 @@ Operators: `gt`, `lt`, `eq`
 {"relayId": 1, "state": "on", "duration": 600}
 ```
 `duration` (seconds) is required when `state` is `"on"`. Not needed for `"off"`.
+
+**Repeating scenarios (optional):**
+
+By default a scenario fires once when its conditions become true. Add a top-level
+`repeatInterval` (seconds) to make it re-fire repeatedly while all conditions stay true:
+
+```json
+{"repeatInterval": 600}
+```
+
+- Omitted or `0` → fire once on the rising edge (default behavior).
+- `> 0` → re-fire every `repeatInterval` seconds as long as conditions remain true. All
+  actions run again on each re-fire. The effective cadence is rounded up to the ~5 s evaluation
+  interval. When conditions go false the scenario re-arms and fires immediately on the next
+  rising edge.
+
+For relay actions, if `repeatInterval` ≤ the action `duration` the relay stays on continuously
+while conditions hold; if it's greater, the relay pulses (on for `duration`, off, on again next
+interval). Use this for e.g. *keep watering while the soil sensor reads dry within a time window*.
 
 **Full example:**
 ```json
@@ -485,7 +504,7 @@ A manually controlled relay will not be overridden by scenarios or timers until 
 **Scenarios not running**
 - Check NTP sync via `GET /system/status` (`ntpSynced` must be `true`)
 - Verify timezone configuration matches your location
-- Scenarios use edge detection — if conditions were already true at boot, they won't fire until conditions reset and become true again
+- Scenarios use edge detection by default — if conditions were already true at boot, they won't fire until conditions reset and become true again (set `repeatInterval` to re-fire while conditions stay true)
 
 **Relays not switching**
 - Verify relay module is active-LOW (default) or set `RELAY_ACTIVE_HIGH true` in config

@@ -35,9 +35,43 @@ public:
   const char* c_str() const { return _str.c_str(); }
   size_t length() const { return _str.length(); }
   bool operator==(const String& other) const { return _str == other._str; }
+  bool operator==(const char* other) const { return _str == (other ? other : ""); }
   bool operator!=(const String& other) const { return _str != other._str; }
+  bool operator!=(const char* other) const { return _str != (other ? other : ""); }
   String operator+(const String& other) const { return String((_str + other._str).c_str()); }
+  String& operator+=(const String& other) { _str += other._str; return *this; }
   operator const char*() const { return _str.c_str(); }
+
+  void reserve(size_t) {}
+
+  String substring(int from) const {
+    if (from < 0) from = 0;
+    if ((size_t)from >= _str.size()) return String();
+    return String(_str.substr(from).c_str());
+  }
+  String substring(int from, int to) const {
+    if (from < 0) from = 0;
+    if (to < from) to = from;
+    if ((size_t)from >= _str.size()) return String();
+    size_t len = (size_t)to > _str.size() ? _str.size() - from : (size_t)(to - from);
+    return String(_str.substr(from, len).c_str());
+  }
+  int indexOf(char c) const {
+    auto p = _str.find(c);
+    return p == std::string::npos ? -1 : (int)p;
+  }
+  int indexOf(char c, int from) const {
+    if (from < 0) from = 0;
+    auto p = _str.find(c, (size_t)from);
+    return p == std::string::npos ? -1 : (int)p;
+  }
+  bool startsWith(const char* prefix) const { return _str.rfind(prefix, 0) == 0; }
+  void trim() {
+    size_t b = _str.find_first_not_of(" \t\r\n");
+    size_t e = _str.find_last_not_of(" \t\r\n");
+    _str = (b == std::string::npos) ? std::string() : _str.substr(b, e - b + 1);
+  }
+
   // Stream-like interface for ArduinoJson
   size_t write(uint8_t c) { _str += static_cast<char>(c); return 1; }
   size_t write(const uint8_t* buf, size_t len) { _str.append(reinterpret_cast<const char*>(buf), len); return len; }

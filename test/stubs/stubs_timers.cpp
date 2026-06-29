@@ -9,10 +9,10 @@ TimerManager Timers;
 void TimerManager::begin() {}
 void TimerManager::check(time_t) {}
 
-bool TimerManager::start(uint8_t relayId, uint32_t) {
+bool TimerManager::start(uint8_t relayId, uint32_t, RelaySource source) {
   int8_t index = Relays.findByRelayId(relayId);
   if (index < 0) return false;
-  Relays.setState(index, true, RelaySource::TIMER);
+  Relays.setState(index, true, source);
   return true;
 }
 

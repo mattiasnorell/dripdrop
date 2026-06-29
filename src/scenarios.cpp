@@ -11,6 +11,9 @@
 #include <LittleFS.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#if defined(ESP32)
+#include <esp_task_wdt.h>
+#endif
 
 ScenarioManager Scenarios;
 
@@ -52,14 +55,15 @@ void ScenarioManager::load()
     return;
   }
 
-  // Validate loaded scenarios — remove entries with missing required fields
+  // Fully re-validate loaded scenarios. Persisted files can be hand-edited,
+  // imported via /config/import (which writes raw JSON), or written by a
+  // different firmware version. Running validate() here guarantees check() never
+  // dereferences a missing condition "type" / action "state" at runtime.
   JsonArray arr = _doc.as<JsonArray>();
   for (int i = arr.size() - 1; i >= 0; i--)
   {
     JsonObject s = arr[i];
-    const char *id = s["id"].as<const char *>();
-    if (!id || !s["name"].is<const char *>() ||
-        !s["conditions"].is<JsonArray>() || !s["actions"].is<JsonArray>())
+    if (!s["id"].as<const char *>() || validate(s) != nullptr)
     {
       DEBUG_SCENARIO("Discarding invalid scenario at index %d\n", i);
       arr.remove(i);
@@ -216,9 +220,12 @@ const char *ScenarioManager::validate(const JsonObject &input) const
       }
       if (strcmp(state, "on") == 0)
       {
-        if (!action["duration"].is<int>() || action["duration"].as<int>() < 0)
+        // Positive duration is required: a relay turned on by a scenario is
+        // always driven through an auto-off timer, so 0 (no timer = latched on
+        // forever) is rejected to avoid a relay that never closes.
+        if (!action["duration"].is<int>() || action["duration"].as<int>() <= 0)
         {
-          return "Action with state 'on' requires non-negative 'duration'";
+          return "Action with state 'on' requires positive 'duration'";
         }
       }
     }
@@ -258,6 +265,15 @@ const char *ScenarioManager::validate(const JsonObject &input) const
       }
     }
     // Unknown types pass validation — preserved for round-trip
+  }
+
+  // Optional: re-fire interval (seconds). Absent/0 = fire once on edge.
+  if (!input["repeatInterval"].isNull())
+  {
+    if (!input["repeatInterval"].is<int>() || input["repeatInterval"].as<int>() < 0)
+    {
+      return "repeatInterval must be a non-negative integer (seconds)";
+    }
   }
 
   return nullptr;
@@ -317,6 +333,8 @@ const char *ScenarioManager::add(const JsonObject &input, String &outId)
   scenario["name"] = input["name"];
   scenario["conditions"] = input["conditions"];
   scenario["actions"] = input["actions"];
+  if (input["repeatInterval"].is<int>())
+    scenario["repeatInterval"] = input["repeatInterval"].as<int>();
 
   _count++;
   _dirty = true;
@@ -343,6 +361,10 @@ const char *ScenarioManager::update(const char *id, const JsonObject &input)
   scenario["name"] = input["name"];
   scenario["conditions"] = input["conditions"];
   scenario["actions"] = input["actions"];
+  if (input["repeatInterval"].is<int>())
+    scenario["repeatInterval"] = input["repeatInterval"].as<int>();
+  else
+    scenario.remove("repeatInterval");
 
   // Reset runtime state since conditions may have changed
   clearState(atoi(id));
@@ -485,7 +507,21 @@ void ScenarioManager::check(time_t currentTime)
     bool allMatch = evaluateConditions(conditions, &timeInfo, currentTime,
                                        sensorCache, sensorCacheCount);
 
-    if (allMatch && !rs->fired)
+    // Re-fire support: with repeatInterval > 0 the scenario fires again every
+    // repeatInterval seconds while conditions stay true (rounded up to the 5s
+    // check cadence). Absent/0 keeps the fire-once-on-edge behavior.
+    //
+    // For a relay action this gives a duty cycle: the relay's auto-off timer
+    // (its "duration") closes it after `duration` seconds, then the next re-fire
+    // re-opens it. duration >= repeatInterval -> effectively always on (the
+    // re-fire is a no-op while the timer is live); duration < repeatInterval ->
+    // pulses on for `duration`, off for `repeatInterval - duration`.
+    int repeatInterval = scenario["repeatInterval"] | 0;
+    bool shouldFire = allMatch &&
+                      (!rs->fired ||
+                       (repeatInterval > 0 && (currentTime - rs->lastRun) >= repeatInterval));
+
+    if (shouldFire)
     {
       DEBUG_SCENARIO("Firing scenario '%s' (id=%s)\n",
                      scenario["name"].as<const char *>(), idStr);
@@ -501,7 +537,7 @@ void ScenarioManager::check(time_t currentTime)
       rs->lastRun = currentTime;
       rs->fired = true;
     }
-    else if (!allMatch && rs->fired)
+    else if (!allMatch && rs->fired) // re-arm for next rising edge
     {
       rs->fired = false;
     }
@@ -514,6 +550,8 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
   for (JsonObject cond : conditions)
   {
     const char *type = cond["type"];
+    if (!type)
+      return false; // Malformed condition — fail safe (never deref a null type)
 
     if (strcmp(type, "time") == 0)
     {
@@ -628,6 +666,8 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
     {
       uint8_t relayId = action["relayId"];
       const char *state = action["state"];
+      if (!state)
+        continue; // Malformed action — skip (never deref a null state)
 
       int8_t index = Relays.findByRelayId(relayId);
       if (index < 0)
@@ -637,8 +677,10 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
       if (!relay)
         continue;
 
-      // Respect priority: Manual > Timer > Scenario
-      // A relay already in SCENARIO source is re-assignable by another scenario
+      // Respect priority: Manual > user Timer > Scenario.
+      // A scenario-owned relay reports source SCENARIO even while its auto-off
+      // timer runs (the timer remembers SCENARIO), so it stays re-assignable by
+      // this or another scenario; only manual / user timers block us here.
       if (relay->isManuallyControlled() || relay->isTimerControlled())
       {
         DEBUG_SCENARIO("Skipping relay %d — overridden by %s\n",
@@ -654,17 +696,31 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         {
           duration = MAX_SCENARIO_DURATION_SEC;
         }
-        if (duration > 0)
+
+        // Idempotent re-fire: a repeatInterval scenario re-runs every cycle. If
+        // this scenario already holds the relay on with a live auto-off timer,
+        // skip it — no GPIO write, no MQTT, no timer reset. After the timer
+        // expires the relay is off, so a re-fire here re-arms it (the intended
+        // duty-cycle when duration < repeatInterval).
+        if (relay->isOn && relay->isScenarioControlled() &&
+            Timers.isActive(relayId, now))
         {
-          Timers.start(relayId, duration);
+          continue;
         }
-        Relays.setState(index, true, RelaySource::SCENARIO);
+
+        // The auto-off timer drives the relay but keeps SCENARIO as the logical
+        // owner (see Timers.start source param), so we no longer double-write
+        // the pin or mask the timer behind a TIMER source.
+        Timers.start(relayId, duration, RelaySource::SCENARIO);
         Mqtt.publishRelayState(relayId);
         DEBUG_SCENARIO("Relay %d ON for %d sec\n", relayId, duration);
       }
       else
       {
-        // state == "off"
+        // state == "off". Timers.abort() already drops the relay if a timer was
+        // running; the setState covers the no-timer case and is an idempotent
+        // no-op otherwise. Publish unconditionally so the off state is always
+        // reported (abort() does not publish relay state itself).
         Timers.abort(relayId);
         Relays.setState(index, false, RelaySource::NONE);
         Mqtt.publishRelayState(relayId);
@@ -707,6 +763,9 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
     }
     else if (strcmp(type, "display") == 0)
     {
+      // Note: with repeatInterval set this re-applies every cycle. Give the
+      // override a timeout >= repeatInterval so it refreshes seamlessly instead
+      // of lapsing to the normal screen and snapping back (visible flicker).
       int timeout = action["timeout"] | 0;
       if (timeout == 0)
       {
@@ -811,6 +870,11 @@ bool ScenarioManager::run(const char* id, time_t now)
   JsonArray actions = scenario["actions"];
   executeActions(actions, now);
 
+  // A manual run counts as a fire: record lastRun and set fired so check()
+  // treats it as the current edge. This intentionally (a) suppresses an
+  // immediate duplicate auto-fire if conditions already hold, and (b) starts the
+  // repeatInterval clock from this run — the next automatic re-fire is one
+  // interval later. A later falling edge in check() re-arms it as usual.
   uint16_t scenarioId = atoi(id);
   RuntimeState* rs = getState(scenarioId);
   if (rs)
@@ -832,6 +896,12 @@ void ScenarioManager::drainCallUrlQueue()
 {
   for (uint8_t i = 0; i < _callUrlCount; i++)
   {
+#if defined(ESP32)
+    // Each request blocks up to CALL_URL_TIMEOUT_MS; pet the watchdog between
+    // them so a full queue of slow hosts can't exceed WATCHDOG_TIMEOUT_MS before
+    // loop() resets it.
+    esp_task_wdt_reset();
+#endif
     executeCallUrl(_callUrlQueue[i]);
   }
   _callUrlCount = 0;

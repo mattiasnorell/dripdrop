@@ -32,9 +32,11 @@ public:
    * Start a timer for a relay
    * @param relayId 1-based relay ID
    * @param durationSeconds Duration in seconds
+   * @param source Logical owner the relay reports while the timer runs
+   *               (TIMER for user timers, SCENARIO for scenario auto-off)
    * @return true if timer was set
    */
-  bool start(uint8_t relayId, uint32_t durationSeconds);
+  bool start(uint8_t relayId, uint32_t durationSeconds, RelaySource source = RelaySource::TIMER);
   
   /**
    * Abort/cancel a timer

@@ -16,6 +16,7 @@
 #include "../stubs/stubs_timers.cpp"
 #include "../stubs/stubs_modules.cpp"
 #include "../stubs/stubs_mqtt.cpp"
+#include "../stubs/stubs_display.cpp"
 #include "../../src/scenarios.cpp"
 
 extern void stub_setModuleReading(const char* uid, float value);
@@ -831,6 +832,79 @@ void test_serialize_includes_lastrun_after_fire(void) {
 }
 
 // =============================================================================
+// Repeat interval tests (via check())
+// =============================================================================
+
+void test_repeat_refires_after_interval(void) {
+  JsonDocument doc;
+  doc["name"] = "Repeat test";
+  doc["repeatInterval"] = 60;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "sensorValue"; c["sensorId"] = "temp1";
+  c["operator"] = "gt"; c["value"] = 20;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
+
+  addScenarioWithConditions(doc);
+  stub_setModuleReading("temp1", 25.0f);
+
+  struct tm t = makeTime(12, 0, 1);
+  time_t ts = tmToTime(&t);
+
+  // First check — fires
+  Scenarios.check(ts);
+  TEST_ASSERT_TRUE(Relays.getState(0));
+
+  // Before the interval elapses — should NOT re-fire
+  Relays.setState(0, false, RelaySource::NONE);
+  Scenarios.check(ts + 59);
+  TEST_ASSERT_FALSE(Relays.getState(0));
+
+  // Interval elapsed, conditions still true — re-fires
+  Scenarios.check(ts + 60);
+  TEST_ASSERT_TRUE(Relays.getState(0));
+}
+
+void test_repeat_zero_behaves_as_fire_once(void) {
+  JsonDocument doc;
+  doc["name"] = "No repeat";
+  doc["repeatInterval"] = 0;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "sensorValue"; c["sensorId"] = "temp1";
+  c["operator"] = "gt"; c["value"] = 20;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
+
+  addScenarioWithConditions(doc);
+  stub_setModuleReading("temp1", 25.0f);
+
+  struct tm t = makeTime(12, 0, 1);
+  time_t ts = tmToTime(&t);
+
+  // Fires once
+  Scenarios.check(ts);
+  TEST_ASSERT_TRUE(Relays.getState(0));
+
+  // Long after — still must not re-fire (conditions never dropped)
+  Relays.setState(0, false, RelaySource::NONE);
+  Scenarios.check(ts + 3600);
+  TEST_ASSERT_FALSE(Relays.getState(0));
+}
+
+void test_validate_repeat_interval_negative(void) {
+  JsonDocument doc;
+  buildValidScenario(doc);
+  doc["repeatInterval"] = -1;
+  String id;
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NOT_NULL(err);
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
@@ -884,6 +958,11 @@ int main() {
   // Edge detection
   RUN_TEST(test_edge_detection_fires_once);
   RUN_TEST(test_edge_detection_resets_when_conditions_change);
+
+  // Repeat interval
+  RUN_TEST(test_repeat_refires_after_interval);
+  RUN_TEST(test_repeat_zero_behaves_as_fire_once);
+  RUN_TEST(test_validate_repeat_interval_negative);
 
   // Serialize
   RUN_TEST(test_serialize_includes_lastrun_null);

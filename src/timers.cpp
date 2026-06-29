@@ -15,6 +15,7 @@ void TimerManager::begin()
   {
     _timers[i].relayId = i + 1;
     _timers[i].endTime = -1; // Inactive
+    _timers[i].source = RelaySource::NONE;
   }
   DEBUG_PRINTLN(F("Timers initialized"));
 }
@@ -32,11 +33,11 @@ void TimerManager::check(time_t currentTime)
 
     if (_timers[i].endTime > currentTime)
     {
-      // Timer still active - ensure relay is on
-      // Accept both TIMER and SCENARIO as valid sources (scenario uses timer for auto-shutoff)
+      // Timer still active - ensure relay is on, restoring the logical owner
+      // that started the timer (TIMER for user timers, SCENARIO for auto-shutoff)
       if (!relay->isOn)
       {
-        Relays.setState(i, true, RelaySource::TIMER);
+        Relays.setState(i, true, _timers[i].source);
       }
     }
     else
@@ -60,7 +61,7 @@ void TimerManager::check(time_t currentTime)
   }
 }
 
-bool TimerManager::start(uint8_t relayId, uint32_t durationSeconds)
+bool TimerManager::start(uint8_t relayId, uint32_t durationSeconds, RelaySource source)
 {
   int8_t index = Relays.findByRelayId(relayId);
   if (index < 0)
@@ -77,9 +78,10 @@ bool TimerManager::start(uint8_t relayId, uint32_t durationSeconds)
 
   time_t now = time(nullptr);
   _timers[index].endTime = now + durationSeconds;
+  _timers[index].source = source;
 
-  // Start the relay immediately
-  Relays.setState(index, true, RelaySource::TIMER);
+  // Start the relay immediately under the requested logical owner
+  Relays.setState(index, true, source);
 
   DEBUG_PRINTF("Timer started for relay %d: %lu seconds (ends at %ld)\n",
                relayId, durationSeconds, _timers[index].endTime);

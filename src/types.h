@@ -51,6 +51,8 @@ struct Relay {
 struct Timer {
   uint8_t relayId;       // Associated relay (1-based)
   time_t endTime;        // Unix timestamp when timer expires, -1 if inactive
+  RelaySource source;    // Logical owner to restore the relay to while active
+                         // (TIMER for user timers, SCENARIO for scenario auto-off)
 
   inline bool isActive(time_t now) const { return endTime > 0 && endTime > now; }
   inline void cancel() { endTime = -1; }
