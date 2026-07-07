@@ -276,6 +276,13 @@ const char *ScenarioManager::validate(const JsonObject &input) const
     }
   }
 
+  // Optional: enable flag. Absent = active (backward compat with pre-flag
+  // scenarios). When present it must be a boolean.
+  if (!input["IsActive"].isNull() && !input["IsActive"].is<bool>())
+  {
+    return "IsActive must be a boolean";
+  }
+
   return nullptr;
 }
 
@@ -335,6 +342,8 @@ const char *ScenarioManager::add(const JsonObject &input, String &outId)
   scenario["actions"] = input["actions"];
   if (input["repeatInterval"].is<int>())
     scenario["repeatInterval"] = input["repeatInterval"].as<int>();
+  // Default to active when the flag is absent (pre-flag scenarios stay running).
+  scenario["IsActive"] = input["IsActive"] | true;
 
   _count++;
   _dirty = true;
@@ -365,6 +374,8 @@ const char *ScenarioManager::update(const char *id, const JsonObject &input)
     scenario["repeatInterval"] = input["repeatInterval"].as<int>();
   else
     scenario.remove("repeatInterval");
+  // Default to active when the flag is absent (pre-flag scenarios stay running).
+  scenario["IsActive"] = input["IsActive"] | true;
 
   // Reset runtime state since conditions may have changed
   clearState(atoi(id));
@@ -411,6 +422,9 @@ void ScenarioManager::serialize(String &output) const
     {
       copy[kv.key()] = kv.value();
     }
+    // Always surface IsActive; legacy scenarios stored before the flag default
+    // to active.
+    copy["IsActive"] = scenario["IsActive"] | true;
     const char *idStr = scenario["id"].as<const char *>();
     if (idStr)
     {
@@ -502,6 +516,14 @@ void ScenarioManager::check(time_t currentTime)
     RuntimeState *rs = getState(id);
     if (!rs)
       continue;
+
+    // Skip disabled scenarios. Absent flag = active (backward compat). Re-arm
+    // fired state so it fires cleanly on the next rising edge once re-enabled.
+    if (!(scenario["IsActive"] | true))
+    {
+      rs->fired = false;
+      continue;
+    }
 
     JsonArray conditions = scenario["conditions"];
     bool allMatch = evaluateConditions(conditions, &timeInfo, currentTime,

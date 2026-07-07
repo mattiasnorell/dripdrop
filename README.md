@@ -288,7 +288,7 @@ Duration is in seconds (max 86400 = 24 hours).
 
 ### Scenarios
 
-Scenarios fire relay actions when all conditions are met (AND logic). By default they use edge detection — a scenario fires once when conditions become true, and resets when they become false. Set the optional `repeatInterval` field to re-fire while conditions stay true (see below).
+Scenarios fire relay actions when all conditions are met (AND logic). By default they use edge detection — a scenario fires once when conditions become true, and resets when they become false. Set the optional `repeatInterval` field to re-fire while conditions stay true (see below). A scenario is only evaluated when its `IsActive` flag is `true`, letting you disable a scenario without deleting it (see below).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -342,10 +342,26 @@ For relay actions, if `repeatInterval` ≤ the action `duration` the relay stays
 while conditions hold; if it's greater, the relay pulses (on for `duration`, off, on again next
 interval). Use this for e.g. *keep watering while the soil sensor reads dry within a time window*.
 
+**Enable flag (optional):**
+
+Add a top-level `IsActive` boolean to enable or disable a scenario without deleting it:
+
+```json
+{"IsActive": false}
+```
+
+- Omitted or `true` → active; the scenario is evaluated normally.
+- `false` → skipped entirely by the evaluation loop; conditions are never checked and no actions
+  run. When re-enabled it re-arms and fires on the next rising edge.
+
+`GET /scenarios` always returns `IsActive` for each scenario (scenarios stored before this field
+existed default to `true`).
+
 **Full example:**
 ```json
 {
   "name": "Morning watering on weekdays",
+  "IsActive": true,
   "conditions": [
     {"type": "time", "hour": 6, "minute": 30},
     {"type": "dayOfWeek", "days": [false, true, true, true, true, true, false]}
@@ -502,6 +518,7 @@ A manually controlled relay will not be overridden by scenarios or timers until 
 - On failure, the device starts an AP named "DripDrop" — connect and access `http://192.168.4.1`
 
 **Scenarios not running**
+- Confirm the scenario is enabled — a scenario with `IsActive: false` is skipped entirely
 - Check NTP sync via `GET /system/status` (`ntpSynced` must be `true`)
 - Verify timezone configuration matches your location
 - Scenarios use edge detection by default — if conditions were already true at boot, they won't fire until conditions reset and become true again (set `repeatInterval` to re-fire while conditions stay true)

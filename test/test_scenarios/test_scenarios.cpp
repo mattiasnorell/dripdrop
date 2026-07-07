@@ -905,6 +905,117 @@ void test_validate_repeat_interval_negative(void) {
 }
 
 // =============================================================================
+// IsActive (enable flag) tests
+// =============================================================================
+
+void test_validate_isactive_non_boolean_rejected(void) {
+  JsonDocument doc;
+  buildValidScenario(doc);
+  doc["IsActive"] = "yes";  // not a boolean
+  String id;
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NOT_NULL(err);
+  TEST_ASSERT_EQUAL_STRING("IsActive must be a boolean", err);
+}
+
+void test_isactive_defaults_true_when_absent(void) {
+  JsonDocument doc;
+  buildValidScenario(doc);  // no IsActive field
+  String id;
+  Scenarios.add(doc.as<JsonObject>(), id);
+
+  String output;
+  Scenarios.serialize(output);
+  JsonDocument result;
+  deserializeJson(result, output);
+  JsonArray arr = result.as<JsonArray>();
+  TEST_ASSERT_EQUAL(1, arr.size());
+  TEST_ASSERT_TRUE(arr[0]["IsActive"].is<bool>());
+  TEST_ASSERT_TRUE(arr[0]["IsActive"].as<bool>());
+}
+
+void test_isactive_roundtrips_false(void) {
+  JsonDocument doc;
+  buildValidScenario(doc);
+  doc["IsActive"] = false;
+  String id;
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NULL(err);
+
+  String output;
+  Scenarios.serialize(output);
+  JsonDocument result;
+  deserializeJson(result, output);
+  JsonArray arr = result.as<JsonArray>();
+  TEST_ASSERT_FALSE(arr[0]["IsActive"].as<bool>());
+}
+
+void test_inactive_scenario_does_not_fire(void) {
+  JsonDocument doc;
+  doc["name"] = "Inactive";
+  doc["IsActive"] = false;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "sensorValue"; c["sensorId"] = "temp1";
+  c["operator"] = "gt"; c["value"] = 20;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
+
+  addScenarioWithConditions(doc);
+  stub_setModuleReading("temp1", 25.0f);  // conditions would match
+
+  struct tm t = makeTime(12, 0, 1);
+  time_t ts = tmToTime(&t);
+  Scenarios.check(ts);
+
+  // Disabled — must not fire even though conditions are true
+  TEST_ASSERT_FALSE(Relays.getState(0));
+}
+
+void test_reenabling_scenario_fires_on_next_edge(void) {
+  JsonDocument doc;
+  doc["name"] = "Toggle enable";
+  doc["IsActive"] = false;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "sensorValue"; c["sensorId"] = "temp1";
+  c["operator"] = "gt"; c["value"] = 20;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
+
+  String id;
+  Scenarios.add(doc.as<JsonObject>(), id);
+  stub_setModuleReading("temp1", 25.0f);
+
+  struct tm t = makeTime(12, 0, 1);
+  time_t ts = tmToTime(&t);
+
+  // Disabled — no fire
+  Scenarios.check(ts);
+  TEST_ASSERT_FALSE(Relays.getState(0));
+
+  // Re-enable via update
+  JsonDocument upd;
+  upd["name"] = "Toggle enable";
+  upd["IsActive"] = true;
+  JsonArray uconds = upd["conditions"].to<JsonArray>();
+  JsonObject uc = uconds.add<JsonObject>();
+  uc["type"] = "sensorValue"; uc["sensorId"] = "temp1";
+  uc["operator"] = "gt"; uc["value"] = 20;
+  JsonArray uacts = upd["actions"].to<JsonArray>();
+  JsonObject ua = uacts.add<JsonObject>();
+  ua["relayId"] = 1; ua["state"] = "on"; ua["duration"] = 5;
+  const char* err = Scenarios.update(id.c_str(), upd.as<JsonObject>());
+  TEST_ASSERT_NULL(err);
+
+  // Now active — fires
+  Scenarios.check(ts);
+  TEST_ASSERT_TRUE(Relays.getState(0));
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
@@ -963,6 +1074,13 @@ int main() {
   RUN_TEST(test_repeat_refires_after_interval);
   RUN_TEST(test_repeat_zero_behaves_as_fire_once);
   RUN_TEST(test_validate_repeat_interval_negative);
+
+  // IsActive enable flag
+  RUN_TEST(test_validate_isactive_non_boolean_rejected);
+  RUN_TEST(test_isactive_defaults_true_when_absent);
+  RUN_TEST(test_isactive_roundtrips_false);
+  RUN_TEST(test_inactive_scenario_does_not_fire);
+  RUN_TEST(test_reenabling_scenario_fires_on_next_edge);
 
   // Serialize
   RUN_TEST(test_serialize_includes_lastrun_null);

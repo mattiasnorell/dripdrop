@@ -18,7 +18,7 @@
  *
  * Requires Arduino ESP32 core v2.x+ (for UriBraces path parameter support).
  *
- * @version 4.0.8
+ * @version 4.5.1
  */
 
 #include <Arduino.h>
