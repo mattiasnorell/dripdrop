@@ -11,6 +11,11 @@ public:
     void update(time_t now, bool apMode, const String& ip);
     void showOverride(const String& r0, const String& r1, const String& r2, const String& r3, uint32_t timeoutSecs);
 
+    // Write four lines to the LCD immediately (synchronous I2C), bypassing the
+    // loop()-driven refresh. Used for blocking operations like the self-update, during
+    // which loop()/update() is not running so showOverride() would never render.
+    void showMessage(const String& r0, const String& r1, const String& r2, const String& r3);
+
 private:
     LiquidCrystal_I2C _lcd{LCD_I2C_ADDR, 20, 4};
     unsigned long _lastActivity = 0;

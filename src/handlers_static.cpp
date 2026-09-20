@@ -7,6 +7,7 @@
 
 #include "api_utils.h"
 #include "AppHtml.h"
+#include "config.h"
 #include <LittleFS.h>
 
 static String getContentType(const String& path) {
@@ -20,8 +21,6 @@ static String getContentType(const String& path) {
   if (path.endsWith(".woff2")) return "font/woff2";
   return "application/octet-stream";
 }
-
-static constexpr const char* WEBAPP_DIR = "/webapp";
 
 // Try .gz variant first, then uncompressed. Returns true if the file was sent.
 // Files are stored under WEBAPP_DIR on LittleFS; path is the request URI.

@@ -42,6 +42,7 @@
 #include "api_utils.h"
 #include "display.h"
 #include "routes.h"
+#include "ota_rollback.h"
 
 // =============================================================================
 // Global Objects
@@ -83,6 +84,10 @@ void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
   delay(100);
 
+  // Must run before anything else: if a prior self-update is crash-looping, this
+  // reverts to the previous firmware slot and reboots (does not return).
+  otaBootCheck();
+
   DEBUG_PRINTLN(F("\n\n========================================"));
   DEBUG_PRINTF("%s v%s\n", FIRMWARE_NAME, FIRMWARE_VERSION);
   DEBUG_PRINTLN(F("========================================\n"));
@@ -111,6 +116,11 @@ void setup() {
   const char* headersToCollect[] = { API_KEY_HEADER };
   server.collectHeaders(headersToCollect, 1);
   server.begin();
+
+  // The device is fully up — web server reachable (STA or AP), watchdog armed — so
+  // commit any pending self-update. Validating earlier would disarm rollback before
+  // the subsystems an update is most likely to break (WiFi/HTTP) have been exercised.
+  otaMarkUpdateValid();
 
   DEBUG_PRINTLN(F("\n========================================"));
   DEBUG_PRINTLN(F("Setup complete! Server running."));

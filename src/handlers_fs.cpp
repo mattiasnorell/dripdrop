@@ -48,6 +48,13 @@ void removeDirRecursive(const String& dirPath) {
   dir.close();
 }
 
+// Delete a directory and everything under it (removeDirRecursive empties it; rmdir
+// drops the now-empty directory node itself).
+void removeTree(const char* path) {
+  removeDirRecursive(path);
+  LittleFS.rmdir(path);
+}
+
 void handleFsDirDelete() {
   sendCorsHeaders();
   if (!checkApiAuth()) return;
@@ -57,8 +64,7 @@ void handleFsDirDelete() {
     return;
   }
   if (!path.startsWith("/")) path = "/" + path;
-  removeDirRecursive(path);
-  LittleFS.rmdir(path);
+  removeTree(path.c_str());
   sendJsonResponse(200, "deleted");
 }
 

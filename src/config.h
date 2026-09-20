@@ -13,6 +13,13 @@
 #include <Arduino.h>
 
 // =============================================================================
+// Version Information
+// =============================================================================
+
+#define FIRMWARE_VERSION "4.5.7"
+#define FIRMWARE_NAME "DripDrop"
+
+// =============================================================================
 // WiFi Configuration
 // =============================================================================
 
@@ -222,13 +229,6 @@ constexpr uint16_t DISPLAY_BACKLIGHT_TIMEOUT_SECS = 0;
 constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 
 // =============================================================================
-// Version Information
-// =============================================================================
-
-#define FIRMWARE_VERSION "4.5.1"
-#define FIRMWARE_NAME "DripDrop"
-
-// =============================================================================
 // Self-Update (OTA pull)
 // =============================================================================
 
@@ -236,11 +236,28 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // <UPDATE_BASE_URL>/manifest.json, <UPDATE_BASE_URL>/firmware.bin and
 // <UPDATE_BASE_URL>/webapp/<file> to be available. Override in config_local.h.
 #ifndef UPDATE_BASE_URL
-  #define UPDATE_BASE_URL "https://github.com/mattiasnorell/dripdrop/releases/latest/download"
+  #define UPDATE_BASE_URL "http://192.168.0.57:8080"
 #endif
 
 // Per-request timeout for update downloads
 constexpr uint32_t UPDATE_HTTP_TIMEOUT_MS = 15000;
+
+// Self-update staging: the new webapp is downloaded here first and only swapped over
+// the live WEBAPP_DIR once every file has been fetched, so a failed/partial download
+// never destroys the working dashboard.
+constexpr const char *WEBAPP_DIR = "/webapp";
+constexpr const char *WEBAPP_STAGING_DIR = "/webapp.new";
+
+// The previous webapp is parked here during the swap so a firmware rollback can restore
+// the UI that matches the rolled-back firmware; otaMarkUpdateValid() deletes it once the
+// new image has proven itself.
+constexpr const char *WEBAPP_OLD_DIR = "/webapp.old";
+
+// Application-managed OTA rollback: a freshly flashed image must reach
+// otaMarkUpdateValid() within this many boots or otaBootCheck() reverts to the previous
+// firmware slot. Guards against an update that flashes cleanly but fails to run
+// (crash/boot-loop). See ota_rollback.cpp.
+constexpr uint8_t OTA_ROLLBACK_MAX_BOOTS = 3;
 
 // =============================================================================
 // Storage

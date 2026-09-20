@@ -38,3 +38,4 @@ SystemStatus getSystemStatus();
 // Shared LittleFS helpers (implemented in handlers_fs.cpp)
 void mkdirRecursive(const String& path);
 void removeDirRecursive(const String& dirPath);
+void removeTree(const char* path);

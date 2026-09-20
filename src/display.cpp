@@ -37,6 +37,18 @@ void DisplayController::showOverride(const String& r0, const String& r1, const S
     _overrideTimeoutMs = timeoutSecs * 1000UL;
 }
 
+void DisplayController::showMessage(const String& r0, const String& r1, const String& r2, const String& r3) {
+    // Ensure the message is visible even if the backlight had timed out.
+    if (!_backlightOn) { _lcd.backlight(); _backlightOn = true; }
+    _lastActivity = millis();
+    // Drop any pending scenario override so it can't reappear after this message.
+    _overrideTimeoutMs = 0;
+    writeRow(0, r0.c_str());
+    writeRow(1, r1.c_str());
+    writeRow(2, r2.c_str());
+    writeRow(3, r3.c_str());
+}
+
 void DisplayController::update(time_t now, bool apMode, const String& ip) {
     unsigned long ms = millis();
 
