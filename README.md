@@ -56,7 +56,10 @@ dripdrop/
 │   ├── api_utils.cpp/h       # Shared HTTP helpers (auth, CORS, JSON responses)
 │   ├── relays.cpp/h          # RelayController — GPIO control, state tracking
 │   ├── timers.cpp/h          # TimerManager — one-shot timed relay activation
-│   ├── scenarios.cpp/h       # ScenarioManager — condition/action automation
+│   ├── scenarios.cpp/h       # ScenarioManager — lifecycle, persistence, CRUD, check/run
+│   ├── scenario_eval.cpp     # Scenario condition evaluation (time/sensor/etc.)
+│   ├── scenario_actions.cpp  # Scenario action execution + callUrl HTTP queue
+│   ├── scenario_keys.h       # Centralized scenario JSON key/type-string constants
 │   ├── modules.cpp/h         # ModuleManager — I²C sensor/driver module discovery, readings, commands
 │   ├── mqtt.cpp/h            # MQTT — telemetry publishing and remote control
 │   ├── display.cpp/h         # DisplayManager — 20×4 I²C LCD status screen
@@ -357,7 +360,7 @@ Days array: `[Sun, Mon, Tue, Wed, Thu, Fri, Sat]`
 
 **Actions:**
 
-Each action has an optional `type` field. When omitted it defaults to `"relay"` for backward compatibility.
+Each action requires a `type` field (`relay`, `driver`, `callUrl`, or `display`). An action with a missing or unrecognized `type` is rejected.
 
 `relay` — switch a relay:
 ```json
@@ -402,20 +405,20 @@ For relay actions, if `repeatInterval` ≤ the action `duration` the relay stays
 while conditions hold; if it's greater, the relay pulses (on for `duration`, off, on again next
 interval). Use this for e.g. *keep watering while the soil sensor reads dry within a time window*.
 
-**Enable flag (optional):**
+**Enable flag (required):**
 
-Add a top-level `isActive` boolean to enable or disable a scenario without deleting it:
+Every scenario must include a top-level `isActive` boolean, which enables or disables it without deleting it:
 
 ```json
 {"isActive": false}
 ```
 
-- Omitted or `true` → active; the scenario is evaluated normally.
+- `true` → active; the scenario is evaluated normally.
 - `false` → skipped entirely by the evaluation loop; conditions are never checked and no actions
   run. When re-enabled it re-arms and fires on the next rising edge.
 
-`GET /scenarios` always returns `isActive` for each scenario (scenarios stored before this field
-existed default to `true`).
+A scenario with a missing or non-boolean `isActive` is rejected. `GET /scenarios` returns
+`isActive` for each scenario.
 
 **Full example:**
 ```json

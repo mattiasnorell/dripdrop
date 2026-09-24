@@ -23,7 +23,9 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
 {
   for (JsonObject action : actions)
   {
-    const char *type = action[SKey::TYPE] | SVal::RELAY; // default for backward compat
+    const char *type = action[SKey::TYPE];
+    if (!type)
+      continue; // type is required and validated on load/add; skip defensively
 
     if (strcmp(type, SVal::RELAY) == 0)
     {

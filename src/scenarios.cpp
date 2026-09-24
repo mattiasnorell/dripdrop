@@ -196,7 +196,9 @@ const char *ScenarioManager::validate(const JsonObject &input) const
 
   for (JsonObject action : actions)
   {
-    const char *type = action[SKey::TYPE] | SVal::RELAY; // default for backward compat
+    const char *type = action[SKey::TYPE];
+    if (!type)
+      return "Action missing 'type'";
 
     if (strcmp(type, SVal::RELAY) == 0)
     {
@@ -260,7 +262,10 @@ const char *ScenarioManager::validate(const JsonObject &input) const
         return "display action requires non-negative 'timeout'";
       }
     }
-    // Unknown types pass validation — preserved for round-trip
+    else
+    {
+      return "Unknown action type";
+    }
   }
 
   // Optional: re-fire interval (seconds). Absent/0 = fire once on edge.
@@ -272,9 +277,8 @@ const char *ScenarioManager::validate(const JsonObject &input) const
     }
   }
 
-  // Optional: enable flag. Absent = active (backward compat with pre-flag
-  // scenarios). When present it must be a boolean.
-  if (!input[SKey::IS_ACTIVE].isNull() && !input[SKey::IS_ACTIVE].is<bool>())
+  // Enable flag is required and must be a boolean.
+  if (!input[SKey::IS_ACTIVE].is<bool>())
   {
     return "isActive must be a boolean";
   }
@@ -338,8 +342,7 @@ const char *ScenarioManager::add(const JsonObject &input, String &outId)
   scenario[SKey::ACTIONS] = input[SKey::ACTIONS];
   if (input[SKey::REPEAT_INTERVAL].is<int>())
     scenario[SKey::REPEAT_INTERVAL] = input[SKey::REPEAT_INTERVAL].as<int>();
-  // Default to active when the flag is absent (pre-flag scenarios stay running).
-  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE] | true;
+  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE].as<bool>();
 
   _count++;
   _dirty = true;
@@ -370,8 +373,7 @@ const char *ScenarioManager::update(const char *id, const JsonObject &input)
     scenario[SKey::REPEAT_INTERVAL] = input[SKey::REPEAT_INTERVAL].as<int>();
   else
     scenario.remove(SKey::REPEAT_INTERVAL);
-  // Default to active when the flag is absent (pre-flag scenarios stay running).
-  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE] | true;
+  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE].as<bool>();
 
   // Reset runtime state since conditions may have changed
   clearState(atoi(id));
@@ -418,9 +420,6 @@ void ScenarioManager::serialize(String &output) const
     {
       copy[kv.key()] = kv.value();
     }
-    // Always surface isActive; legacy scenarios stored before the flag default
-    // to active.
-    copy[SKey::IS_ACTIVE] = scenario[SKey::IS_ACTIVE] | true;
     const char *idStr = scenario[SKey::ID].as<const char *>();
     if (idStr)
     {
@@ -513,9 +512,9 @@ void ScenarioManager::check(time_t currentTime)
     if (!rs)
       continue;
 
-    // Skip disabled scenarios. Absent flag = active (backward compat). Re-arm
-    // fired state so it fires cleanly on the next rising edge once re-enabled.
-    if (!(scenario[SKey::IS_ACTIVE] | true))
+    // Skip disabled scenarios. Re-arm fired state so it fires cleanly on the
+    // next rising edge once re-enabled.
+    if (!scenario[SKey::IS_ACTIVE].as<bool>())
     {
       rs->fired = false;
       continue;

@@ -236,7 +236,7 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.7.0"
+#define FIRMWARE_VERSION "4.7.1"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

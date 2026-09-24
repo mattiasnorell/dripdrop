@@ -30,6 +30,7 @@ extern ScenarioManager Scenarios;
 // Helper: build a minimal valid scenario JSON
 static void buildValidScenario(JsonDocument& doc) {
   doc["name"] = "Test Scenario";
+  doc["isActive"] = true;
   JsonArray conditions = doc["conditions"].to<JsonArray>();
   JsonObject timeCond = conditions.add<JsonObject>();
   timeCond["type"] = "time";
@@ -37,6 +38,7 @@ static void buildValidScenario(JsonDocument& doc) {
   timeCond["minute"] = 30;
   JsonArray actions = doc["actions"].to<JsonArray>();
   JsonObject action = actions.add<JsonObject>();
+  action["type"] = "relay";
   action["relayId"] = 1;
   action["state"] = "on";
   action["duration"] = 10;
@@ -80,6 +82,7 @@ void test_validate_missing_name(void) {
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -91,8 +94,10 @@ void test_validate_missing_name(void) {
 void test_validate_missing_conditions(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -104,9 +109,11 @@ void test_validate_missing_conditions(void) {
 void test_validate_empty_conditions(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   doc["conditions"].to<JsonArray>();  // empty array
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -118,12 +125,14 @@ void test_validate_empty_conditions(void) {
 void test_validate_time_condition_missing_hour(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time";
   c["minute"] = 30;  // no hour
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -135,11 +144,13 @@ void test_validate_time_condition_missing_hour(void) {
 void test_validate_time_condition_hour_out_of_range(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 25; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -151,6 +162,7 @@ void test_validate_time_condition_hour_out_of_range(void) {
 void test_validate_dayofweek_wrong_length(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "dayOfWeek";
@@ -158,6 +170,7 @@ void test_validate_dayofweek_wrong_length(void) {
   days.add(true); days.add(false); days.add(true);  // only 3 elements
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -169,6 +182,7 @@ void test_validate_dayofweek_wrong_length(void) {
 void test_validate_sensor_invalid_operator(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
@@ -176,6 +190,7 @@ void test_validate_sensor_invalid_operator(void) {
   c["value"] = 25;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -187,12 +202,14 @@ void test_validate_sensor_invalid_operator(void) {
 void test_validate_sensor_missing_value(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1"; c["operator"] = "gt";
   // missing value
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -204,11 +221,13 @@ void test_validate_sensor_missing_value(void) {
 void test_validate_unknown_condition_type(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "weather";
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -220,6 +239,7 @@ void test_validate_unknown_condition_type(void) {
 void test_validate_missing_actions(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
@@ -234,6 +254,7 @@ void test_validate_missing_actions(void) {
 void test_validate_empty_actions(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
@@ -248,11 +269,13 @@ void test_validate_empty_actions(void) {
 void test_validate_action_invalid_relay(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 99;  // invalid
   a["state"] = "on"; a["duration"] = 10;
 
@@ -265,11 +288,13 @@ void test_validate_action_invalid_relay(void) {
 void test_validate_action_on_missing_duration(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on";
   // missing duration
 
@@ -282,11 +307,13 @@ void test_validate_action_on_missing_duration(void) {
 void test_validate_action_off_no_duration_needed(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "off";
   // no duration — should be fine for "off"
 
@@ -308,12 +335,14 @@ void test_validate_full_valid_scenario(void) {
 void test_validate_condition_missing_type(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   // no "type" field
   c["hour"] = 6;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   String id;
@@ -325,17 +354,55 @@ void test_validate_condition_missing_type(void) {
 void test_validate_action_invalid_state(void) {
   JsonDocument doc;
   doc["name"] = "Test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "toggle"; a["duration"] = 10;
 
   String id;
   const char* err = Scenarios.add(doc.as<JsonObject>(), id);
   TEST_ASSERT_NOT_NULL(err);
   TEST_ASSERT_EQUAL_STRING("Action requires 'state' (on or off)", err);
+}
+
+void test_validate_action_missing_type(void) {
+  JsonDocument doc;
+  doc["name"] = "Test";
+  doc["isActive"] = true;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  // no "type" field — action type is now mandatory (no relay default)
+  a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
+
+  String id;
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NOT_NULL(err);
+  TEST_ASSERT_EQUAL_STRING("Action missing 'type'", err);
+}
+
+void test_validate_action_unknown_type(void) {
+  JsonDocument doc;
+  doc["name"] = "Test";
+  doc["isActive"] = true;
+  JsonArray conds = doc["conditions"].to<JsonArray>();
+  JsonObject c = conds.add<JsonObject>();
+  c["type"] = "time"; c["hour"] = 6; c["minute"] = 30;
+  JsonArray acts = doc["actions"].to<JsonArray>();
+  JsonObject a = acts.add<JsonObject>();
+  a["type"] = "teleport";  // not a known action type
+  a["relayId"] = 1;
+
+  String id;
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NOT_NULL(err);
+  TEST_ASSERT_EQUAL_STRING("Unknown action type", err);
 }
 
 // =============================================================================
@@ -429,6 +496,7 @@ void test_update_existing_scenario(void) {
   JsonDocument updated;
   buildValidScenario(updated);
   updated["name"] = "Updated Name";
+  updated["isActive"] = true;
   const char* err = Scenarios.update(id.c_str(), updated.as<JsonObject>());
   TEST_ASSERT_NULL(err);
   TEST_ASSERT_EQUAL(1, Scenarios.count());
@@ -467,11 +535,13 @@ static time_t tmToTime(struct tm* t) {
 void test_eval_time_matches(void) {
   JsonDocument doc;
   doc["name"] = "Time test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 14; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   addScenarioWithConditions(doc);
@@ -488,11 +558,13 @@ void test_eval_time_matches(void) {
 void test_eval_time_no_match(void) {
   JsonDocument doc;
   doc["name"] = "Time test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "time"; c["hour"] = 14; c["minute"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 2; a["state"] = "on"; a["duration"] = 10;
 
   addScenarioWithConditions(doc);
@@ -508,6 +580,7 @@ void test_eval_time_no_match(void) {
 void test_eval_dayofweek_matches(void) {
   JsonDocument doc;
   doc["name"] = "Day test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "dayOfWeek";
@@ -517,6 +590,7 @@ void test_eval_dayofweek_matches(void) {
   days.add(false); days.add(false); days.add(false);
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -532,6 +606,7 @@ void test_eval_dayofweek_matches(void) {
 void test_eval_dayofweek_no_match(void) {
   JsonDocument doc;
   doc["name"] = "Day test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "dayOfWeek";
@@ -541,6 +616,7 @@ void test_eval_dayofweek_no_match(void) {
   days.add(false); days.add(false); days.add(false);
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 3; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -556,12 +632,14 @@ void test_eval_dayofweek_no_match(void) {
 void test_eval_sensor_gt_passes(void) {
   JsonDocument doc;
   doc["name"] = "Sensor gt";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 25;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -578,12 +656,14 @@ void test_eval_sensor_gt_passes(void) {
 void test_eval_sensor_gt_fails(void) {
   JsonDocument doc;
   doc["name"] = "Sensor gt fail";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 25;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 2; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -600,12 +680,14 @@ void test_eval_sensor_gt_fails(void) {
 void test_eval_sensor_lt_passes(void) {
   JsonDocument doc;
   doc["name"] = "Sensor lt";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "soil1";
   c["operator"] = "lt"; c["value"] = 30;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -622,12 +704,14 @@ void test_eval_sensor_lt_passes(void) {
 void test_eval_sensor_eq_passes(void) {
   JsonDocument doc;
   doc["name"] = "Sensor eq";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "eq"; c["value"] = 22;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -644,12 +728,14 @@ void test_eval_sensor_eq_passes(void) {
 void test_eval_sensor_unavailable_returns_false(void) {
   JsonDocument doc;
   doc["name"] = "Sensor unavailable";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 0;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 4; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -666,6 +752,7 @@ void test_eval_sensor_unavailable_returns_false(void) {
 void test_eval_and_logic_all_pass(void) {
   JsonDocument doc;
   doc["name"] = "AND test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   // Time condition
   JsonObject c1 = conds.add<JsonObject>();
@@ -679,6 +766,7 @@ void test_eval_and_logic_all_pass(void) {
 
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 10;
 
   addScenarioWithConditions(doc);
@@ -694,6 +782,7 @@ void test_eval_and_logic_all_pass(void) {
 void test_eval_and_logic_one_fails(void) {
   JsonDocument doc;
   doc["name"] = "AND fail";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   // Time condition
   JsonObject c1 = conds.add<JsonObject>();
@@ -707,6 +796,7 @@ void test_eval_and_logic_one_fails(void) {
 
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 3; a["state"] = "on"; a["duration"] = 10;
 
   addScenarioWithConditions(doc);
@@ -726,12 +816,14 @@ void test_eval_and_logic_one_fails(void) {
 void test_edge_detection_fires_once(void) {
   JsonDocument doc;
   doc["name"] = "Edge test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -755,12 +847,14 @@ void test_edge_detection_fires_once(void) {
 void test_edge_detection_resets_when_conditions_change(void) {
   JsonDocument doc;
   doc["name"] = "Edge reset";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -807,12 +901,14 @@ void test_serialize_includes_lastrun_null(void) {
 void test_serialize_includes_lastrun_after_fire(void) {
   JsonDocument doc;
   doc["name"] = "LastRun test";
+  doc["isActive"] = true;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
   c["operator"] = "gt"; c["value"] = 0;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   String id;
@@ -840,6 +936,7 @@ void test_serialize_includes_lastrun_after_fire(void) {
 void test_repeat_refires_after_interval(void) {
   JsonDocument doc;
   doc["name"] = "Repeat test";
+  doc["isActive"] = true;
   doc["repeatInterval"] = 60;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
@@ -847,6 +944,7 @@ void test_repeat_refires_after_interval(void) {
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -872,6 +970,7 @@ void test_repeat_refires_after_interval(void) {
 void test_repeat_zero_behaves_as_fire_once(void) {
   JsonDocument doc;
   doc["name"] = "No repeat";
+  doc["isActive"] = true;
   doc["repeatInterval"] = 0;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
@@ -879,6 +978,7 @@ void test_repeat_zero_behaves_as_fire_once(void) {
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -920,20 +1020,14 @@ void test_validate_isactive_non_boolean_rejected(void) {
   TEST_ASSERT_EQUAL_STRING("isActive must be a boolean", err);
 }
 
-void test_isactive_defaults_true_when_absent(void) {
+void test_validate_isactive_required(void) {
   JsonDocument doc;
-  buildValidScenario(doc);  // no isActive field
+  buildValidScenario(doc);
+  doc.remove("isActive");  // isActive is now mandatory
   String id;
-  Scenarios.add(doc.as<JsonObject>(), id);
-
-  String output;
-  Scenarios.serialize(output);
-  JsonDocument result;
-  deserializeJson(result, output);
-  JsonArray arr = result.as<JsonArray>();
-  TEST_ASSERT_EQUAL(1, arr.size());
-  TEST_ASSERT_TRUE(arr[0]["isActive"].is<bool>());
-  TEST_ASSERT_TRUE(arr[0]["isActive"].as<bool>());
+  const char* err = Scenarios.add(doc.as<JsonObject>(), id);
+  TEST_ASSERT_NOT_NULL(err);
+  TEST_ASSERT_EQUAL_STRING("isActive must be a boolean", err);
 }
 
 void test_isactive_roundtrips_false(void) {
@@ -962,6 +1056,7 @@ void test_inactive_scenario_does_not_fire(void) {
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   addScenarioWithConditions(doc);
@@ -985,6 +1080,7 @@ void test_reenabling_scenario_fires_on_next_edge(void) {
   c["operator"] = "gt"; c["value"] = 20;
   JsonArray acts = doc["actions"].to<JsonArray>();
   JsonObject a = acts.add<JsonObject>();
+  a["type"] = "relay";
   a["relayId"] = 1; a["state"] = "on"; a["duration"] = 5;
 
   String id;
@@ -1008,6 +1104,7 @@ void test_reenabling_scenario_fires_on_next_edge(void) {
   uc["operator"] = "gt"; uc["value"] = 20;
   JsonArray uacts = upd["actions"].to<JsonArray>();
   JsonObject ua = uacts.add<JsonObject>();
+  ua["type"] = "relay";
   ua["relayId"] = 1; ua["state"] = "on"; ua["duration"] = 5;
   const char* err = Scenarios.update(id.c_str(), upd.as<JsonObject>());
   TEST_ASSERT_NULL(err);
@@ -1042,6 +1139,8 @@ int main() {
   RUN_TEST(test_validate_full_valid_scenario);
   RUN_TEST(test_validate_condition_missing_type);
   RUN_TEST(test_validate_action_invalid_state);
+  RUN_TEST(test_validate_action_missing_type);
+  RUN_TEST(test_validate_action_unknown_type);
 
   // ID generation
   RUN_TEST(test_nextid_first_scenario_gets_id_1);
@@ -1079,7 +1178,7 @@ int main() {
 
   // isActive enable flag
   RUN_TEST(test_validate_isactive_non_boolean_rejected);
-  RUN_TEST(test_isactive_defaults_true_when_absent);
+  RUN_TEST(test_validate_isactive_required);
   RUN_TEST(test_isactive_roundtrips_false);
   RUN_TEST(test_inactive_scenario_does_not_fire);
   RUN_TEST(test_reenabling_scenario_fires_on_next_edge);
