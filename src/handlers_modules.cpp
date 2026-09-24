@@ -83,6 +83,14 @@ void handleModuleUpdate() {
     updated = true;
   }
 
+  if (doc["publish"].is<bool>()) {
+    if (!Modules.setPublish(uid.c_str(), doc["publish"].as<bool>(), false)) {
+      sendJsonError(404, "Module not found");
+      return;
+    }
+    updated = true;
+  }
+
   if (!updated) {
     sendJsonError(400, "No updatable fields provided");
     return;

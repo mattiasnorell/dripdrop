@@ -5,13 +5,19 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 ## Features
 
 - Control up to 4 relays (e.g. driving irrigation valves)
-- Scenario-based if-this-then-that automation (time, day-of-week, sensor conditions)
+- Scenario-based if-this-then-that automation with time, time-range, day-of-week, and sensor conditions
+- Scenario actions can switch relays, send commands to driver modules, call external webhooks (HTTP), or show text on the LCD
+- Repeating scenarios and an enable/disable flag per scenario; scenarios can also be run manually
 - One-time timer support for manual watering sessions
 - REST API for remote control and monitoring
-- I²C sensor module support (up to 8 modules; temperature, humidity, etc.)
-- MQTT pub/sub for telemetry, remote control, and event logging
+- I²C module support (up to 8): **sensor** modules (temperature, humidity, etc.) and **driver** modules (actuators the ESP32 commands)
+- MQTT pub/sub for telemetry, remote control, and event logging, with per-module publish opt-out
+- Optional 20×4 (LCD2004) I²C character display for local status
+- UDP device discovery so a control app finds the device without typing IP addresses
 - NTP time synchronization with DST support
-- OTA firmware updates via web interface
+- OTA firmware updates via web interface, plus self-update from a hosted release manifest
+- Config backup and restore (export/import all settings as one JSON bundle)
+- WiFi provisioning over the API
 - mDNS discovery (access via `dripdrop.local`)
 - LittleFS persistence for scenarios, modules, and settings
 - Automatic WiFi reconnection with AP fallback
@@ -24,7 +30,8 @@ An ESP32-based automated irrigation controller with WiFi connectivity, REST API,
 - 4-channel relay module (active LOW recommended)
 - 12V/24V solenoid valves (depending on your irrigation system)
 - Power supply appropriate for your valves
-- (Optional) Arduino Nano-based I²C sensor modules on the I²C bus (SDA/SCL)
+- (Optional) Arduino Nano-based I²C modules on the I²C bus (SDA/SCL) — sensor and/or driver modules
+- (Optional) 20×4 character LCD with a PCF8574 I²C backpack (LCD2004), address `0x27` or `0x3F`
 
 ### Default Pin Configuration
 
@@ -42,24 +49,34 @@ Pins can be changed in `src/config.h`. Avoid strapping pins (0, 2, 5, 12, 15) an
 ```
 dripdrop/
 ├── src/
-│   ├── dripdrop.cpp        # Main entry point — setup, loop, route registration
-│   ├── config.h            # Configuration constants and defaults
-│   ├── types.h             # Type definitions, structs, enums
-│   ├── relays.cpp/h        # RelayController — GPIO control, state tracking
-│   ├── timers.cpp/h        # TimerManager — one-shot timed relay activation
-│   ├── scenarios.cpp/h     # ScenarioManager — condition/action automation
-│   ├── modules.cpp/h       # ModuleManager — I²C sensor module discovery and readings
-│   ├── mqtt.cpp/h          # MQTT — telemetry publishing and remote control
-│   ├── handlers_system.cpp # /system/* endpoints
-│   ├── handlers_static.cpp # Static file serving and SPA fallback
-│   ├── handlers_fs.cpp     # /fs/* endpoints — file upload, directory ops, inspection
-│   ├── handlers_ota.cpp    # /ota/* endpoints — firmware and filesystem OTA
-│   └── AppHtml.h           # Embedded provisioning UI (served when no webapp present)
-├── data/                   # LittleFS data directory (webapp files placed here by Docker build)
+│   ├── dripdrop.cpp          # Main entry point — setup, loop
+│   ├── routes.cpp/h          # HTTP route registration
+│   ├── config.h              # Configuration constants and defaults
+│   ├── types.h               # Type definitions, structs, enums
+│   ├── api_utils.cpp/h       # Shared HTTP helpers (auth, CORS, JSON responses)
+│   ├── relays.cpp/h          # RelayController — GPIO control, state tracking
+│   ├── timers.cpp/h          # TimerManager — one-shot timed relay activation
+│   ├── scenarios.cpp/h       # ScenarioManager — condition/action automation
+│   ├── modules.cpp/h         # ModuleManager — I²C sensor/driver module discovery, readings, commands
+│   ├── mqtt.cpp/h            # MQTT — telemetry publishing and remote control
+│   ├── display.cpp/h         # DisplayManager — 20×4 I²C LCD status screen
+│   ├── DeviceDiscovery.cpp/h # UDP announce/discover for network auto-discovery
+│   ├── handlers_system.cpp   # /system/* endpoints (status, time, name, wifi, mqtt, reboot)
+│   ├── handlers_relays.cpp   # /relays/* endpoints
+│   ├── handlers_timers.cpp   # /timers and /relays/{id}/timer endpoints
+│   ├── handlers_scenarios.cpp# /scenarios/* endpoints
+│   ├── handlers_modules.cpp  # /modules/* endpoints
+│   ├── handlers_config.cpp   # /config/export and /config/import endpoints
+│   ├── handlers_update.cpp   # /system/update — self-update from a release manifest
+│   ├── handlers_static.cpp   # Static file serving and SPA fallback
+│   ├── handlers_fs.cpp       # /fs/* endpoints — file upload, directory ops, inspection
+│   ├── handlers_ota.cpp      # /ota/* endpoints — firmware and filesystem OTA
+│   └── AppHtml.h             # Embedded provisioning UI (served when no webapp present)
+├── data/                     # LittleFS data directory (webapp files placed here by Docker build)
 ├── test/
-│   ├── stubs/              # Arduino/hardware stubs for native testing
-│   ├── test_timers/        # TimerManager unit tests
-│   └── test_scenarios/     # ScenarioManager unit tests
+│   ├── stubs/                # Arduino/hardware stubs for native testing
+│   ├── test_timers/          # TimerManager unit tests
+│   └── test_scenarios/       # ScenarioManager unit tests
 ├── Dockerfile              # Two-stage build: React webapp + ESP32 firmware
 ├── docker-compose.yml      # Build service — outputs firmware.bin, littlefs.bin, webapp/
 ├── Makefile                # Build and OTA deployment targets
@@ -73,7 +90,7 @@ dripdrop/
 | `/webapp/` | React dashboard (index.html, assets/) | `make ota-webapp` |
 | `/settings.json` | WiFi, MQTT, device name | `/system/*` API |
 | `/scenarios.json` | Automation scenarios | `/scenarios/*` API |
-| `/modules.json` | Registered I²C sensor modules | `/modules/*` API |
+| `/modules.json` | Registered I²C sensor and driver modules | `/modules/*` API |
 | `/relay_names.json` | Custom relay display names | `/relays/*` API |
 
 Config files at the root are never touched by a webapp update.
@@ -220,6 +237,14 @@ Edit `src/config.h` or create `src/config_local.h` (recommended — gitignored) 
 | `API_KEY` | `"change-me..."` | API key for authentication |
 | `NUM_RELAYS` | `4` | Number of relays |
 | `MAX_SCENARIOS` | `16` | Maximum number of scenarios |
+| `MAX_MODULES` | `8` | Maximum number of registered I²C modules |
+| `MAX_SCENARIO_DURATION_SEC` | `14400` | Max scenario relay-action duration (4 h) |
+| `MAX_TIMER_DURATION_SEC` | `86400` | Max timer duration (24 h) |
+| `DISCOVERY_PORT` | `4210` | UDP port for device discovery (must match the discovery service) |
+| `DISCOVERY_HEARTBEAT_INTERVAL_MS` | `15000` | How often to broadcast an unsolicited discovery announce |
+| `LCD_I2C_ADDR` | `0x27` | I²C address of the LCD backpack (`0x27` or `0x3F`) |
+| `DISPLAY_BACKLIGHT_TIMEOUT_SECS` | `0` | Backlight auto-off after N seconds (0 = always on) |
+| `UPDATE_BASE_URL` | GitHub releases | Base URL the device pulls `manifest.json`/`firmware.bin` from for self-update |
 | `DEBUG_ENABLED` | `1` | Enable serial debug output |
 
 ## API Reference
@@ -239,6 +264,11 @@ All endpoints return JSON. POST endpoints accept a JSON body with `Content-Type:
 | POST | `/system/time` | Set time manually `{"unixTime": 1234567890}` |
 | GET | `/system/name` | Get device name |
 | POST | `/system/name` | Set device name `{"name": "garden"}` |
+| GET | `/system/wifi` | Get current SSID and connection/AP state |
+| POST | `/system/wifi` | Set WiFi credentials `{"ssid": "...", "password": "..."}` and reconnect |
+| GET | `/system/mqtt` | Get MQTT configuration and connection status |
+| POST | `/system/mqtt` | Update MQTT settings |
+| POST | `/system/update` | Self-update: pull the release manifest and flash if a newer firmware is available |
 | POST | `/system/reboot` | Reboot device |
 
 ### Relays
@@ -288,14 +318,17 @@ Duration is in seconds (max 86400 = 24 hours).
 
 ### Scenarios
 
-Scenarios fire relay actions when all conditions are met (AND logic). By default they use edge detection — a scenario fires once when conditions become true, and resets when they become false. Set the optional `repeatInterval` field to re-fire while conditions stay true (see below). A scenario is only evaluated when its `IsActive` flag is `true`, letting you disable a scenario without deleting it (see below).
+Scenarios fire actions when all conditions are met (AND logic). By default they use edge detection — a scenario fires once when conditions become true, and resets when they become false. Set the optional `repeatInterval` field to re-fire while conditions stay true (see below). A scenario is only evaluated when its `isActive` flag is `true`, letting you disable a scenario without deleting it (see below).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/scenarios` | List all scenarios |
 | POST | `/scenarios` | Add a scenario |
 | POST | `/scenarios/{id}` | Update a scenario |
+| POST | `/scenarios/{id}/run` | Run a scenario's actions immediately, ignoring its conditions |
 | DELETE | `/scenarios/{id}` | Delete a scenario |
+
+`POST /scenarios/{id}/run` fires all of a scenario's actions right now regardless of conditions or its `isActive` flag — handy for testing a scenario or triggering a one-off watering.
 
 **Condition types:**
 
@@ -303,6 +336,12 @@ Scenarios fire relay actions when all conditions are met (AND logic). By default
 ```json
 {"type": "time", "hour": 6, "minute": 30}
 ```
+
+`timeRange` — true while the current time is within a window (start-inclusive, end-exclusive). If the end is earlier than the start the window wraps past midnight (e.g. 22:00–06:00):
+```json
+{"type": "timeRange", "startHour": 6, "startMinute": 0, "endHour": 9, "endMinute": 30}
+```
+Combine with `repeatInterval` to keep acting throughout the window; with edge detection alone it fires once on window entry.
 
 `dayOfWeek` — fires only on selected days (AND with other conditions):
 ```json
@@ -314,14 +353,35 @@ Days array: `[Sun, Mon, Tue, Wed, Thu, Fri, Sat]`
 ```json
 {"type": "sensorValue", "sensorId": "temp1", "operator": "gt", "value": 25}
 ```
-Operators: `gt`, `lt`, `eq`
+`sensorId` is the registered sensor module's UID. Operators: `gt`, `lt`, `eq`.
 
-**Action fields:**
+**Actions:**
 
+Each action has an optional `type` field. When omitted it defaults to `"relay"` for backward compatibility.
+
+`relay` — switch a relay:
 ```json
-{"relayId": 1, "state": "on", "duration": 600}
+{"type": "relay", "relayId": 1, "state": "on", "duration": 600}
 ```
-`duration` (seconds) is required when `state` is `"on"`. Not needed for `"off"`.
+`duration` (seconds, positive) is required when `state` is `"on"` — a scenario-driven relay is always run through an auto-off timer. Not needed for `"off"`.
+
+`driver` — send a command byte to a registered driver module:
+```json
+{"type": "driver", "uid": "RLY001ABC12", "cmd": 1}
+```
+`cmd` (0–255) is interpreted by the module's firmware. Fire-and-forget — only the I²C ACK is checked.
+
+`callUrl` — call an external HTTP endpoint (webhook):
+```json
+{"type": "callUrl", "url": "http://example.com/hook", "method": "POST", "headers": "Content-Type: application/json", "body": "{\"state\":\"on\"}"}
+```
+`url` must start with `http://` or `https://`; `method` is `GET` or `POST`. `headers` (newline-separated `Key: Value` lines) and `body` are optional. Requests are queued and sent asynchronously (queue size 4, 4 s timeout each).
+
+`display` — override the LCD with custom text for a period:
+```json
+{"type": "display", "row0": "Watering", "row1": "Front garden", "timeout": 60}
+```
+`timeout` (seconds, > 0) is how long the override stays up. `row0`–`row3` are the four 20-char lines (any omitted line is blank). With `repeatInterval` set, use a `timeout` ≥ the interval so the message refreshes seamlessly.
 
 **Repeating scenarios (optional):**
 
@@ -344,61 +404,69 @@ interval). Use this for e.g. *keep watering while the soil sensor reads dry with
 
 **Enable flag (optional):**
 
-Add a top-level `IsActive` boolean to enable or disable a scenario without deleting it:
+Add a top-level `isActive` boolean to enable or disable a scenario without deleting it:
 
 ```json
-{"IsActive": false}
+{"isActive": false}
 ```
 
 - Omitted or `true` → active; the scenario is evaluated normally.
 - `false` → skipped entirely by the evaluation loop; conditions are never checked and no actions
   run. When re-enabled it re-arms and fires on the next rising edge.
 
-`GET /scenarios` always returns `IsActive` for each scenario (scenarios stored before this field
+`GET /scenarios` always returns `isActive` for each scenario (scenarios stored before this field
 existed default to `true`).
 
 **Full example:**
 ```json
 {
   "name": "Morning watering on weekdays",
-  "IsActive": true,
+  "isActive": true,
   "conditions": [
     {"type": "time", "hour": 6, "minute": 30},
     {"type": "dayOfWeek", "days": [false, true, true, true, true, true, false]}
   ],
   "actions": [
-    {"relayId": 1, "state": "on", "duration": 600},
-    {"relayId": 2, "state": "on", "duration": 300}
+    {"type": "relay", "relayId": 1, "state": "on", "duration": 600},
+    {"type": "relay", "relayId": 2, "state": "on", "duration": 300}
   ]
 }
 ```
 
 ### Modules
 
-Sensor modules are Arduino Nano-based I²C devices. They must be physically connected to the I²C bus, discovered via scan, then registered before they can be used in scenarios.
+Modules are Arduino Nano-based I²C devices. Each reports a **role** in its descriptor: `0` = sensor (produces readings) or `1` = driver (accepts action commands, e.g. an actuator or auxiliary relay). Modules must be physically connected to the I²C bus, discovered via scan, then registered before they can be used in scenarios.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/modules` | List all registered modules |
 | POST | `/modules/scan` | Scan the I²C bus for modules |
 | POST | `/modules/{uid}/register` | Register a discovered module by UID |
-| POST | `/modules/{uid}` | Update module settings — body: `{"customName": "Soil Sensor"}` |
+| POST | `/modules/{uid}` | Update module settings — body: `{"customName": "Soil Sensor", "unit": "C", "publish": true}` |
 | DELETE | `/modules/{uid}` | Remove a registered module |
-| GET | `/modules/{uid}/reading` | Get current sensor reading |
+| GET | `/modules/{uid}/reading` | Get current reading (sensor modules) |
+| POST | `/modules/{uid}/command` | Send an action command to a driver module — body: `{"cmd": 1}` |
+
+`POST /modules/{uid}` accepts any of `customName`, `unit` (user-defined label, max 4 chars), and `publish` (set `false` to keep a sensor's readings out of MQTT). Pass `null` or an empty string for `customName`/`unit` to clear it.
+
+`POST /modules/{uid}/command` sends a single action byte (`cmd`, 0–255) to a driver module over I²C. Returns `422` if the module does not acknowledge, or `404` if the UID is not a registered driver.
 
 Registered modules response:
 ```json
 [
   {
     "uid": "TEMP001ABC12",
+    "role": 0,
     "type": "TMP",
     "version": 1,
-    "unit": "C",
     "addr": 8,
-    "customName": "Soil Sensor"
+    "customName": "Soil Sensor",
+    "unit": "C",
+    "publish": true
   }
 ]
 ```
+`role`: `0` = sensor, `1` = driver.
 
 Scan result (`POST /modules/scan`):
 ```json
@@ -406,9 +474,9 @@ Scan result (`POST /modules/scan`):
   {
     "addr": 8,
     "uid": "TEMP001ABC12",
+    "role": 0,
     "type": "TMP",
     "version": 1,
-    "unit": "C",
     "registered": true
   }
 ]
@@ -445,7 +513,7 @@ MQTT settings body:
 |-------|-------------|
 | `.../relay/{id}/state` | Relay on/off state, source, last run |
 | `.../timer/{id}/state` | Timer start/remaining/expire events |
-| `.../sensor/{uid}/state` | Sensor reading `{"value": 22.5}` |
+| `.../sensor/{uid}/state` | Sensor reading `{"value": 22.5, "type": "TMP", "unit": "C"}` (suppressed for modules with `publish: false`) |
 | `.../system/state` | System health snapshot |
 | `.../event` | Structured log events (INFO/WARNING) |
 | `.../status` | `online` / `offline` (LWT) |
@@ -482,6 +550,27 @@ MQTT settings body:
 }
 ```
 
+### Config Backup / Restore
+
+Export or restore all device configuration (settings, scenarios, modules, relay names) as a single JSON bundle.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/config/export` | Download all config files bundled as one JSON object |
+| POST | `/config/import` | Restore config from a bundle, then reboot |
+
+`/config/export` response shape:
+```json
+{
+  "settings":   { ... },
+  "scenarios":  { ... },
+  "modules":    { ... },
+  "relayNames": { ... }
+}
+```
+
+`POST /config/import` writes back any keys present in the body (missing keys are left untouched) and reboots to apply.
+
 ### Authentication
 
 If `API_AUTH_ENABLED` is `true`, all requests must include:
@@ -489,9 +578,13 @@ If `API_AUTH_ENABLED` is `true`, all requests must include:
 X-API-Key: your-api-key
 ```
 
-### OTA Updates
+### OTA & Self-Update
 
-Use `make ota` for a full over-the-air update (webapp + firmware), or the individual targets for partial updates. For scripted/manual curl:
+Three ways to update firmware:
+
+- **Full OTA via Make** — `make ota` (webapp + firmware), or the individual targets for partial updates.
+- **Self-update from a release manifest** — `POST /system/update`. The device fetches `manifest.json` from `UPDATE_BASE_URL` and flashes only if the manifest advertises a strictly newer version. Returns `{"status": "up-to-date"}` when already current.
+- **Scripted/manual curl** — direct binary upload:
 
 ```bash
 # Firmware only
@@ -500,6 +593,19 @@ curl -X POST http://dripdrop.local/ota/upload -F "firmware=@build/firmware.bin"
 # Full LittleFS image (overwrites everything including config — use with care)
 curl -X POST http://dripdrop.local/ota/upload-fs -F "fs=@build/littlefs.bin"
 ```
+
+## Device Discovery
+
+The device announces itself on the local network over UDP (port `DISCOVERY_PORT`, default `4210`) so a central discovery service — and the React control app through it — can find it without anyone typing an IP address.
+
+- On receiving a `{"type":"DISCOVER"}` packet it unicasts an `ANNOUNCE` reply back to the sender.
+- Every `DISCOVERY_HEARTBEAT_INTERVAL_MS` (default 15 s) it broadcasts an unsolicited `ANNOUNCE` to the subnet, so a service that missed a reply or restarted can recover.
+
+The `ANNOUNCE` payload is JSON: `{ "type":"ANNOUNCE", "mac", "hostname", "name", "ip", "fw_version" }`. Discovery runs only in station (STA) mode and is silent while in AP mode or disconnected.
+
+## Display
+
+An optional 20×4 I²C character LCD (LCD2004 with a PCF8574 backpack) shows local status — device name, IP, time, and active relays. Set the backpack address with `LCD_I2C_ADDR` (`0x27` or `0x3F`). Scenarios can temporarily take over the screen with a `display` action (see Scenarios). If no display is attached the firmware runs normally without it.
 
 ## Control Priority
 
@@ -518,7 +624,7 @@ A manually controlled relay will not be overridden by scenarios or timers until 
 - On failure, the device starts an AP named "DripDrop" — connect and access `http://192.168.4.1`
 
 **Scenarios not running**
-- Confirm the scenario is enabled — a scenario with `IsActive: false` is skipped entirely
+- Confirm the scenario is enabled — a scenario with `isActive: false` is skipped entirely
 - Check NTP sync via `GET /system/status` (`ntpSynced` must be `true`)
 - Verify timezone configuration matches your location
 - Scenarios use edge detection by default — if conditions were already true at boot, they won't fire until conditions reset and become true again (set `repeatInterval` to re-fire while conditions stay true)
@@ -527,6 +633,21 @@ A manually controlled relay will not be overridden by scenarios or timers until 
 - Verify relay module is active-LOW (default) or set `RELAY_ACTIVE_HIGH true` in config
 - Check GPIO pin assignments match your wiring
 - Test with `POST /relays/1/on` and monitor serial output
+
+**Modules not found or not responding**
+- Run `POST /modules/scan` and confirm the module appears with the expected `role`
+- Check I²C wiring (SDA/SCL/GND) and that each module has a unique address in `0x08`–`0x77`
+- A module must be registered before it can be used in scenarios or read
+- Driver commands return `422` if the module does not ACK — verify the module firmware handles the `cmd` byte
+
+**LCD blank or garbled**
+- Confirm `LCD_I2C_ADDR` matches your backpack (`0x27` for PCF8574T, `0x3F` for PCF8574AT)
+- Adjust the contrast potentiometer on the backpack
+- The firmware runs fine with no display attached
+
+**Device not discovered on the network**
+- Discovery only runs in STA mode — a device in AP fallback does not announce
+- Ensure the discovery service listens on `DISCOVERY_PORT` (default `4210`) and UDP broadcast isn't blocked by the network
 
 **Serial debug output**
 Connect at 115200 baud. Disable for production with `DEBUG_ENABLED 0` in config.

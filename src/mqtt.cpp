@@ -7,6 +7,7 @@
 #include "relays.h"
 #include "timers.h"
 #include "types.h"
+#include "modules.h"
 
 extern String deviceName;
 
@@ -69,6 +70,7 @@ void MqttManager::loop(unsigned long now) {
       _lastStatePublish = now;
       publishAllRelayStates();
       publishSystemStatus();
+      publishAllSensorReadings();
     }
   }
 }
@@ -227,15 +229,35 @@ void MqttManager::publishSystemStatus() {
   _mqttClient.publish(topic, payload, true);
 }
 
-void MqttManager::publishSensorReading(const char* uid, float value) {
+void MqttManager::publishSensorReading(const char* uid, float value,
+                                       const char* type, const char* unit) {
   if (!_mqttClient.connected()) return;
 
-  char payload[32];
-  snprintf(payload, sizeof(payload), "{\"value\":%.2f}", value);
+  char payload[128];
+  snprintf(payload, sizeof(payload),
+           "{\"device\":\"%s\",\"value\":%.2f,\"type\":\"%s\",\"unit\":\"%s\"}",
+           deviceName.c_str(), value, type ? type : "", unit ? unit : "");
 
   char topic[96];
-  snprintf(topic, sizeof(topic), "%s/sensor/%s/state", _topicPrefix.c_str(), uid);
+  snprintf(topic, sizeof(topic), "%s/sensor/%s", _topicPrefix.c_str(), uid);
   _mqttClient.publish(topic, payload, true);
+}
+
+void MqttManager::publishAllSensorReadings() {
+  if (!_mqttClient.connected()) return;
+
+  uint8_t count = Modules.registeredCount();
+  for (uint8_t i = 0; i < count; i++) {
+    ModuleInfo info;
+    if (!Modules.getRegistered(i, info)) continue;
+    if (info.role != ROLE_SENSOR) continue;
+    if (!info.publish) continue;  // module opted out of MQTT publishing
+
+    SensorResponse resp;
+    if (!Modules.readModule(info.addr, resp)) continue;  // skip on I²C/sensor error
+
+    publishSensorReading(info.uid, resp.value, info.type, info.unit);
+  }
 }
 
 bool MqttManager::isConnected() const {

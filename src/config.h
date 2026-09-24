@@ -42,6 +42,17 @@ constexpr const char* MDNS_HOSTNAME = "dripdrop";
 constexpr uint16_t HTTP_PORT = 80;
 
 // =============================================================================
+// Device Discovery (UDP)
+// =============================================================================
+
+// UDP port for device discovery (listen + announce). Must match the central
+// discovery service.
+constexpr uint16_t DISCOVERY_PORT = 4210;
+
+// How often to broadcast an unsolicited heartbeat announce (milliseconds)
+constexpr unsigned long DISCOVERY_HEARTBEAT_INTERVAL_MS = 15000;
+
+// =============================================================================
 // MQTT Configuration
 // =============================================================================
 
@@ -225,7 +236,7 @@ constexpr unsigned long DISPLAY_UPDATE_INTERVAL_MS = 1000;
 // Version Information
 // =============================================================================
 
-#define FIRMWARE_VERSION "4.5.1"
+#define FIRMWARE_VERSION "4.7.0"
 #define FIRMWARE_NAME "DripDrop"
 
 // =============================================================================

@@ -108,6 +108,7 @@ bool ModuleManager::registerModule(const char *uid)
   m.addr = _discovered[discIdx].addr;
   m.customName[0] = '\0';
   m.unit[0] = '\0';
+  m.publish = true;  // new modules publish by default
 
   _discovered[discIdx].registered = true;
 
@@ -198,6 +199,20 @@ uint8_t ModuleManager::addrForUid(const char *uid) const
   return findRegistered(uid, idx) ? _registered[idx].addr : 0;
 }
 
+bool ModuleManager::getRegistered(uint8_t index, ModuleInfo &out) const
+{
+  if (index >= _registeredCount) return false;
+
+  const RegisteredModule &m = _registered[index];
+  out.uid  = m.uid;
+  out.role = m.role;
+  out.addr = m.addr;
+  out.type = m.type;
+  out.unit = m.unit;
+  out.publish = m.publish;
+  return true;
+}
+
 void ModuleManager::serializeScan(String &out) const
 {
   JsonDocument doc;
@@ -234,6 +249,7 @@ void ModuleManager::serializeRegistered(String &out) const
     obj["addr"] = m.addr;
     obj["customName"] = m.customName[0] ? (const char*)m.customName : (const char*)nullptr;
     obj["unit"] = m.unit[0] ? (const char*)m.unit : (const char*)nullptr;
+    obj["publish"] = m.publish;
   }
 
   serializeJson(doc, out);
@@ -264,6 +280,17 @@ bool ModuleManager::setUnit(const char* uid, const char* unit, bool persist)
   } else {
     _registered[idx].unit[0] = '\0';
   }
+
+  if (persist) save();
+  return true;
+}
+
+bool ModuleManager::setPublish(const char* uid, bool enabled, bool persist)
+{
+  uint8_t idx;
+  if (!findRegistered(uid, idx)) return false;
+
+  _registered[idx].publish = enabled;
 
   if (persist) save();
   return true;
@@ -364,6 +391,7 @@ void ModuleManager::load()
     m.addr = addr;
     strlcpy(m.customName, entry["customName"] | "", sizeof(m.customName));
     strlcpy(m.unit, entry["unit"] | "", sizeof(m.unit));
+    m.publish = entry["publish"] | true;  // absent = publish (backward compat)
   }
 
   DEBUG_PRINTF("[MODULE] Loaded %d registered module(s)\n", _registeredCount);
@@ -385,6 +413,7 @@ void ModuleManager::save()
     obj["addr"] = m.addr;
     if (m.customName[0] != '\0') obj["customName"] = m.customName;
     if (m.unit[0] != '\0') obj["unit"] = m.unit;
+    if (!m.publish) obj["publish"] = false;  // omit default (true) to keep file compact
   }
 
   File f = LittleFS.open(MODULES_FILE, "w");

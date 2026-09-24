@@ -42,6 +42,7 @@
 #include "api_utils.h"
 #include "display.h"
 #include "routes.h"
+#include "DeviceDiscovery.h"
 
 // =============================================================================
 // Global Objects
@@ -106,6 +107,8 @@ void setup() {
   setupMdns();
   setupNtp();
 
+  Discovery.begin();
+
   setupRoutes();
 
   const char* headersToCollect[] = { API_KEY_HEADER };
@@ -132,6 +135,8 @@ void loop() {
 
   unsigned long now = millis();
   time_t currentTime = time(nullptr);
+
+  Discovery.handle(now);
 
   if (now - lastWifiCheck >= WIFI_RECONNECT_INTERVAL_MS) {
     lastWifiCheck = now;

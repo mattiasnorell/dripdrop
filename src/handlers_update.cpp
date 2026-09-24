@@ -110,11 +110,24 @@ static bool downloadFirmware(const String& url) {
   return true;
 }
 
+// Parse up to three dot-separated integers from `s` into out[3] (missing = 0).
+// Hand-rolled with atoi to avoid pulling in the ~20 KB sscanf/strtod machinery,
+// mirroring the atoi approach used in buildTimestamp().
+static void parseVersion(const char* s, int out[3]) {
+  out[0] = out[1] = out[2] = 0;
+  for (int i = 0; i < 3 && s && *s; i++) {
+    out[i] = atoi(s);            // atoi stops at the '.' separator
+    const char* dot = strchr(s, '.');
+    if (!dot) break;
+    s = dot + 1;
+  }
+}
+
 // Numeric dotted-version compare: returns true if `remote` > `current`.
 static bool isNewerVersion(const char* remote, const char* current) {
-  int r[3] = {0, 0, 0}, c[3] = {0, 0, 0};
-  sscanf(remote, "%d.%d.%d", &r[0], &r[1], &r[2]);
-  sscanf(current, "%d.%d.%d", &c[0], &c[1], &c[2]);
+  int r[3], c[3];
+  parseVersion(remote, r);
+  parseVersion(current, c);
   for (int i = 0; i < 3; i++) {
     if (r[i] != c[i]) return r[i] > c[i];
   }

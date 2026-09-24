@@ -56,7 +56,8 @@ public:
   void publishRelayState(uint8_t relayId);
   void publishAllRelayStates();
   void publishSystemStatus();
-  void publishSensorReading(const char* uid, float value);
+  void publishSensorReading(const char* uid, float value, const char* type, const char* unit);
+  void publishAllSensorReadings();
   void publishEvent(const char* level, const char* event, const char* details = nullptr);
 
   bool isConnected() const;

@@ -62,6 +62,19 @@ struct SensorResponse {
 
 #pragma pack(pop)
 
+// Read-only view of a registered module, used by callers that need to iterate
+// modules without touching ModuleManager internals (e.g. the MQTT publisher).
+// Pointers reference storage owned by ModuleManager and are valid only until
+// the module list is next modified.
+struct ModuleInfo {
+  const char* uid;
+  uint8_t     role;
+  uint8_t     addr;
+  const char* type;
+  const char* unit;   // user-defined label; empty string if unset
+  bool        publish; // false = sensor readings are suppressed from MQTT
+};
+
 // =============================================================================
 // ModuleManager
 // =============================================================================
@@ -126,6 +139,17 @@ public:
   bool setUnit(const char* uid, const char* unit, bool persist = true);
 
   /**
+   * Enable or disable MQTT publishing of this module's sensor readings.
+   * Registered modules default to enabled; disabling opts a specific module
+   * out of publishAllSensorReadings() without unregistering it.
+   *
+   * @param uid      UID of the module.
+   * @param enabled  true to publish readings, false to suppress them.
+   * @return true on success; false if the UID is not registered.
+   */
+  bool setPublish(const char* uid, bool enabled, bool persist = true);
+
+  /**
    * Send CMD_GET_READING to addr and read a SensorResponse.
    * Returns false without populating out if the I²C transfer fails or
    * the module reports status != 0x00.
@@ -168,6 +192,13 @@ public:
   uint8_t discoveredCount()  const { return _discoveredCount; }
   uint8_t registeredCount()  const { return _registeredCount; }
 
+  /**
+   * Populate `out` with a read-only view of the registered module at `index`.
+   * @param index  0-based index into the registered list (< registeredCount()).
+   * @return true if index is in range; false otherwise.
+   */
+  bool getRegistered(uint8_t index, ModuleInfo& out) const;
+
   void save();
 
 private:
@@ -181,6 +212,7 @@ private:
     uint8_t addr;
     char    customName[32];
     char    unit[5];        // user-defined label, not from hardware
+    bool    publish;        // false = suppress sensor readings from MQTT
   };
 
   struct DiscoveredModule {

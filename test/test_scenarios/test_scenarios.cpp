@@ -905,22 +905,22 @@ void test_validate_repeat_interval_negative(void) {
 }
 
 // =============================================================================
-// IsActive (enable flag) tests
+// isActive (enable flag) tests
 // =============================================================================
 
 void test_validate_isactive_non_boolean_rejected(void) {
   JsonDocument doc;
   buildValidScenario(doc);
-  doc["IsActive"] = "yes";  // not a boolean
+  doc["isActive"] = "yes";  // not a boolean
   String id;
   const char* err = Scenarios.add(doc.as<JsonObject>(), id);
   TEST_ASSERT_NOT_NULL(err);
-  TEST_ASSERT_EQUAL_STRING("IsActive must be a boolean", err);
+  TEST_ASSERT_EQUAL_STRING("isActive must be a boolean", err);
 }
 
 void test_isactive_defaults_true_when_absent(void) {
   JsonDocument doc;
-  buildValidScenario(doc);  // no IsActive field
+  buildValidScenario(doc);  // no isActive field
   String id;
   Scenarios.add(doc.as<JsonObject>(), id);
 
@@ -930,14 +930,14 @@ void test_isactive_defaults_true_when_absent(void) {
   deserializeJson(result, output);
   JsonArray arr = result.as<JsonArray>();
   TEST_ASSERT_EQUAL(1, arr.size());
-  TEST_ASSERT_TRUE(arr[0]["IsActive"].is<bool>());
-  TEST_ASSERT_TRUE(arr[0]["IsActive"].as<bool>());
+  TEST_ASSERT_TRUE(arr[0]["isActive"].is<bool>());
+  TEST_ASSERT_TRUE(arr[0]["isActive"].as<bool>());
 }
 
 void test_isactive_roundtrips_false(void) {
   JsonDocument doc;
   buildValidScenario(doc);
-  doc["IsActive"] = false;
+  doc["isActive"] = false;
   String id;
   const char* err = Scenarios.add(doc.as<JsonObject>(), id);
   TEST_ASSERT_NULL(err);
@@ -947,13 +947,13 @@ void test_isactive_roundtrips_false(void) {
   JsonDocument result;
   deserializeJson(result, output);
   JsonArray arr = result.as<JsonArray>();
-  TEST_ASSERT_FALSE(arr[0]["IsActive"].as<bool>());
+  TEST_ASSERT_FALSE(arr[0]["isActive"].as<bool>());
 }
 
 void test_inactive_scenario_does_not_fire(void) {
   JsonDocument doc;
   doc["name"] = "Inactive";
-  doc["IsActive"] = false;
+  doc["isActive"] = false;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
@@ -976,7 +976,7 @@ void test_inactive_scenario_does_not_fire(void) {
 void test_reenabling_scenario_fires_on_next_edge(void) {
   JsonDocument doc;
   doc["name"] = "Toggle enable";
-  doc["IsActive"] = false;
+  doc["isActive"] = false;
   JsonArray conds = doc["conditions"].to<JsonArray>();
   JsonObject c = conds.add<JsonObject>();
   c["type"] = "sensorValue"; c["sensorId"] = "temp1";
@@ -999,7 +999,7 @@ void test_reenabling_scenario_fires_on_next_edge(void) {
   // Re-enable via update
   JsonDocument upd;
   upd["name"] = "Toggle enable";
-  upd["IsActive"] = true;
+  upd["isActive"] = true;
   JsonArray uconds = upd["conditions"].to<JsonArray>();
   JsonObject uc = uconds.add<JsonObject>();
   uc["type"] = "sensorValue"; uc["sensorId"] = "temp1";
@@ -1075,7 +1075,7 @@ int main() {
   RUN_TEST(test_repeat_zero_behaves_as_fire_once);
   RUN_TEST(test_validate_repeat_interval_negative);
 
-  // IsActive enable flag
+  // isActive enable flag
   RUN_TEST(test_validate_isactive_non_boolean_rejected);
   RUN_TEST(test_isactive_defaults_true_when_absent);
   RUN_TEST(test_isactive_roundtrips_false);
