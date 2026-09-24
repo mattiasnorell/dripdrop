@@ -18,6 +18,8 @@
 #include "../stubs/stubs_mqtt.cpp"
 #include "../stubs/stubs_display.cpp"
 #include "../../src/scenarios.cpp"
+#include "../../src/scenario_eval.cpp"
+#include "../../src/scenario_actions.cpp"
 
 extern void stub_setModuleReading(const char* uid, float value);
 extern void stub_resetModuleReadings();
