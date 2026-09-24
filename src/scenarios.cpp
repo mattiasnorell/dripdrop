@@ -63,7 +63,7 @@ void ScenarioManager::load()
   for (int i = arr.size() - 1; i >= 0; i--)
   {
     JsonObject s = arr[i];
-    if (!s["id"].as<const char *>() || validate(s) != nullptr)
+    if (!s[SKey::ID].as<const char *>() || validate(s) != nullptr)
     {
       DEBUG_SCENARIO("Discarding invalid scenario at index %d\n", i);
       arr.remove(i);
@@ -102,17 +102,17 @@ void ScenarioManager::maybeSave(unsigned long now)
 
 const char *ScenarioManager::validate(const JsonObject &input) const
 {
-  if (!input["name"].is<const char *>())
+  if (!input[SKey::NAME].is<const char *>())
   {
     return "Missing or invalid 'name'";
   }
 
-  if (!input["conditions"].is<JsonArray>())
+  if (!input[SKey::CONDITIONS].is<JsonArray>())
   {
     return "Missing 'conditions' array";
   }
 
-  JsonArray conditions = input["conditions"];
+  JsonArray conditions = input[SKey::CONDITIONS];
   if (conditions.size() == 0)
   {
     return "At least one condition is required";
@@ -120,34 +120,34 @@ const char *ScenarioManager::validate(const JsonObject &input) const
 
   for (JsonObject cond : conditions)
   {
-    const char *type = cond["type"];
+    const char *type = cond[SKey::TYPE];
     if (!type)
       return "Condition missing 'type'";
 
-    if (strcmp(type, "time") == 0)
+    if (strcmp(type, SVal::TIME) == 0)
     {
-      if (!cond["hour"].is<int>() || !cond["minute"].is<int>())
+      if (!cond[SKey::HOUR].is<int>() || !cond[SKey::MINUTE].is<int>())
       {
         return "Time condition requires 'hour' and 'minute'";
       }
-      int hour = cond["hour"];
-      int minute = cond["minute"];
+      int hour = cond[SKey::HOUR];
+      int minute = cond[SKey::MINUTE];
       if (hour < 0 || hour > 23 || minute < 0 || minute > 59)
       {
         return "Invalid time values";
       }
     }
-    else if (strcmp(type, "timeRange") == 0)
+    else if (strcmp(type, SVal::TIME_RANGE) == 0)
     {
-      if (!cond["startHour"].is<int>() || !cond["startMinute"].is<int>() ||
-          !cond["endHour"].is<int>() || !cond["endMinute"].is<int>())
+      if (!cond[SKey::START_HOUR].is<int>() || !cond[SKey::START_MINUTE].is<int>() ||
+          !cond[SKey::END_HOUR].is<int>() || !cond[SKey::END_MINUTE].is<int>())
       {
         return "timeRange requires startHour, startMinute, endHour, endMinute";
       }
-      int startHour = cond["startHour"];
-      int startMinute = cond["startMinute"];
-      int endHour = cond["endHour"];
-      int endMinute = cond["endMinute"];
+      int startHour = cond[SKey::START_HOUR];
+      int startMinute = cond[SKey::START_MINUTE];
+      int endHour = cond[SKey::END_HOUR];
+      int endMinute = cond[SKey::END_MINUTE];
       if (startHour < 0 || startHour > 23 || endHour < 0 || endHour > 23 ||
           startMinute < 0 || startMinute > 59 || endMinute < 0 || endMinute > 59)
       {
@@ -158,25 +158,25 @@ const char *ScenarioManager::validate(const JsonObject &input) const
         return "timeRange start and end must differ";
       }
     }
-    else if (strcmp(type, "dayOfWeek") == 0)
+    else if (strcmp(type, SVal::DAY_OF_WEEK) == 0)
     {
-      if (!cond["days"].is<JsonArray>() || cond["days"].size() != 7)
+      if (!cond[SKey::DAYS].is<JsonArray>() || cond[SKey::DAYS].size() != 7)
       {
         return "dayOfWeek condition requires 'days' array of 7 booleans";
       }
     }
-    else if (strcmp(type, "sensorValue") == 0)
+    else if (strcmp(type, SVal::SENSOR_VALUE) == 0)
     {
-      if (!cond["sensorId"].is<const char *>())
+      if (!cond[SKey::SENSOR_ID].is<const char *>())
       {
         return "sensorValue condition requires 'sensorId'";
       }
-      const char *op = cond["operator"];
-      if (!op || (strcmp(op, "gt") != 0 && strcmp(op, "lt") != 0 && strcmp(op, "eq") != 0))
+      const char *op = cond[SKey::OPERATOR];
+      if (!op || (strcmp(op, SVal::OP_GT) != 0 && strcmp(op, SVal::OP_LT) != 0 && strcmp(op, SVal::OP_EQ) != 0))
       {
         return "sensorValue condition requires 'operator' (gt, lt, eq)";
       }
-      if (!cond["value"].is<float>())
+      if (!cond[SKey::VALUE].is<float>())
       {
         return "sensorValue condition requires 'value'";
       }
@@ -187,12 +187,12 @@ const char *ScenarioManager::validate(const JsonObject &input) const
     }
   }
 
-  if (!input["actions"].is<JsonArray>())
+  if (!input[SKey::ACTIONS].is<JsonArray>())
   {
     return "Missing 'actions' array";
   }
 
-  JsonArray actions = input["actions"];
+  JsonArray actions = input[SKey::ACTIONS];
   if (actions.size() == 0)
   {
     return "At least one action is required";
@@ -200,49 +200,49 @@ const char *ScenarioManager::validate(const JsonObject &input) const
 
   for (JsonObject action : actions)
   {
-    const char *type = action["type"] | "relay"; // default for backward compat
+    const char *type = action[SKey::TYPE] | SVal::RELAY; // default for backward compat
 
-    if (strcmp(type, "relay") == 0)
+    if (strcmp(type, SVal::RELAY) == 0)
     {
-      if (!action["relayId"].is<int>())
+      if (!action[SKey::RELAY_ID].is<int>())
       {
         return "Action missing 'relayId'";
       }
-      int relayId = action["relayId"];
+      int relayId = action[SKey::RELAY_ID];
       if (!Relays.isValidId(relayId))
       {
         return "Invalid relayId in action";
       }
-      const char *state = action["state"];
-      if (!state || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0))
+      const char *state = action[SKey::STATE];
+      if (!state || (strcmp(state, SVal::ON) != 0 && strcmp(state, SVal::OFF) != 0))
       {
         return "Action requires 'state' (on or off)";
       }
-      if (strcmp(state, "on") == 0)
+      if (strcmp(state, SVal::ON) == 0)
       {
         // Positive duration is required: a relay turned on by a scenario is
         // always driven through an auto-off timer, so 0 (no timer = latched on
         // forever) is rejected to avoid a relay that never closes.
-        if (!action["duration"].is<int>() || action["duration"].as<int>() <= 0)
+        if (!action[SKey::DURATION].is<int>() || action[SKey::DURATION].as<int>() <= 0)
         {
           return "Action with state 'on' requires positive 'duration'";
         }
       }
     }
-    else if (strcmp(type, "driver") == 0)
+    else if (strcmp(type, SVal::DRIVER) == 0)
     {
-      if (!action["uid"].is<const char *>())
+      if (!action[SKey::UID].is<const char *>())
       {
         return "driver action requires 'uid'";
       }
-      if (!action["cmd"].is<int>())
+      if (!action[SKey::CMD].is<int>())
       {
         return "driver action requires 'cmd'";
       }
     }
-    else if (strcmp(type, "callUrl") == 0)
+    else if (strcmp(type, SVal::CALL_URL) == 0)
     {
-      const char *url = action["url"] | "";
+      const char *url = action[SKey::URL] | "";
       if (url[0] == '\0')
       {
         return "callUrl action requires 'url'";
@@ -251,15 +251,15 @@ const char *ScenarioManager::validate(const JsonObject &input) const
       {
         return "callUrl 'url' must start with http:// or https://";
       }
-      const char *method = action["method"] | "";
-      if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0)
+      const char *method = action[SKey::METHOD] | "";
+      if (strcmp(method, SVal::GET) != 0 && strcmp(method, SVal::POST) != 0)
       {
         return "callUrl action requires 'method' (GET or POST)";
       }
     }
-    else if (strcmp(type, "display") == 0)
+    else if (strcmp(type, SVal::DISPLAY_ACT) == 0)
     {
-      if (!action["timeout"].is<int>() || action["timeout"].as<int>() < 0)
+      if (!action[SKey::TIMEOUT].is<int>() || action[SKey::TIMEOUT].as<int>() < 0)
       {
         return "display action requires non-negative 'timeout'";
       }
@@ -268,9 +268,9 @@ const char *ScenarioManager::validate(const JsonObject &input) const
   }
 
   // Optional: re-fire interval (seconds). Absent/0 = fire once on edge.
-  if (!input["repeatInterval"].isNull())
+  if (!input[SKey::REPEAT_INTERVAL].isNull())
   {
-    if (!input["repeatInterval"].is<int>() || input["repeatInterval"].as<int>() < 0)
+    if (!input[SKey::REPEAT_INTERVAL].is<int>() || input[SKey::REPEAT_INTERVAL].as<int>() < 0)
     {
       return "repeatInterval must be a non-negative integer (seconds)";
     }
@@ -278,7 +278,7 @@ const char *ScenarioManager::validate(const JsonObject &input) const
 
   // Optional: enable flag. Absent = active (backward compat with pre-flag
   // scenarios). When present it must be a boolean.
-  if (!input["isActive"].isNull() && !input["isActive"].is<bool>())
+  if (!input[SKey::IS_ACTIVE].isNull() && !input[SKey::IS_ACTIVE].is<bool>())
   {
     return "isActive must be a boolean";
   }
@@ -292,7 +292,7 @@ uint16_t ScenarioManager::nextId() const
   JsonArray arr = _doc.as<JsonArray>();
   for (JsonObject scenario : arr)
   {
-    const char *idStr = scenario["id"].as<const char *>();
+    const char *idStr = scenario[SKey::ID].as<const char *>();
     if (!idStr)
       continue;
     uint16_t id = atoi(idStr);
@@ -310,7 +310,7 @@ int ScenarioManager::findIndex(const char *id) const
   int i = 0;
   for (JsonObject scenario : arr)
   {
-    const char *sid = scenario["id"].as<const char *>();
+    const char *sid = scenario[SKey::ID].as<const char *>();
     if (sid && strcmp(sid, id) == 0)
     {
       return i;
@@ -336,21 +336,21 @@ const char *ScenarioManager::add(const JsonObject &input, String &outId)
 
   JsonArray arr = _doc.as<JsonArray>();
   JsonObject scenario = arr.add<JsonObject>();
-  scenario["id"] = outId;
-  scenario["name"] = input["name"];
-  scenario["conditions"] = input["conditions"];
-  scenario["actions"] = input["actions"];
-  if (input["repeatInterval"].is<int>())
-    scenario["repeatInterval"] = input["repeatInterval"].as<int>();
+  scenario[SKey::ID] = outId;
+  scenario[SKey::NAME] = input[SKey::NAME];
+  scenario[SKey::CONDITIONS] = input[SKey::CONDITIONS];
+  scenario[SKey::ACTIONS] = input[SKey::ACTIONS];
+  if (input[SKey::REPEAT_INTERVAL].is<int>())
+    scenario[SKey::REPEAT_INTERVAL] = input[SKey::REPEAT_INTERVAL].as<int>();
   // Default to active when the flag is absent (pre-flag scenarios stay running).
-  scenario["isActive"] = input["isActive"] | true;
+  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE] | true;
 
   _count++;
   _dirty = true;
   _dirtyTime = millis();
 
   DEBUG_SCENARIO("Added scenario '%s' (id=%s)\n",
-                 input["name"].as<const char *>(), outId.c_str());
+                 input[SKey::NAME].as<const char *>(), outId.c_str());
   return nullptr;
 }
 
@@ -367,15 +367,15 @@ const char *ScenarioManager::update(const char *id, const JsonObject &input)
   JsonArray arr = _doc.as<JsonArray>();
   JsonObject scenario = arr[idx];
 
-  scenario["name"] = input["name"];
-  scenario["conditions"] = input["conditions"];
-  scenario["actions"] = input["actions"];
-  if (input["repeatInterval"].is<int>())
-    scenario["repeatInterval"] = input["repeatInterval"].as<int>();
+  scenario[SKey::NAME] = input[SKey::NAME];
+  scenario[SKey::CONDITIONS] = input[SKey::CONDITIONS];
+  scenario[SKey::ACTIONS] = input[SKey::ACTIONS];
+  if (input[SKey::REPEAT_INTERVAL].is<int>())
+    scenario[SKey::REPEAT_INTERVAL] = input[SKey::REPEAT_INTERVAL].as<int>();
   else
-    scenario.remove("repeatInterval");
+    scenario.remove(SKey::REPEAT_INTERVAL);
   // Default to active when the flag is absent (pre-flag scenarios stay running).
-  scenario["isActive"] = input["isActive"] | true;
+  scenario[SKey::IS_ACTIVE] = input[SKey::IS_ACTIVE] | true;
 
   // Reset runtime state since conditions may have changed
   clearState(atoi(id));
@@ -394,7 +394,7 @@ bool ScenarioManager::remove(const char *id)
     return false;
 
   // Clear runtime state before removing
-  const char *idStr = _doc.as<JsonArray>()[idx]["id"].as<const char *>();
+  const char *idStr = _doc.as<JsonArray>()[idx][SKey::ID].as<const char *>();
   if (idStr)
     clearState(atoi(idStr));
 
@@ -422,10 +422,10 @@ void ScenarioManager::serialize(String &output) const
     {
       copy[kv.key()] = kv.value();
     }
-    // Always surface IsActive; legacy scenarios stored before the flag default
+    // Always surface isActive; legacy scenarios stored before the flag default
     // to active.
-    copy["isActive"] = scenario["isActive"] | true;
-    const char *idStr = scenario["id"].as<const char *>();
+    copy[SKey::IS_ACTIVE] = scenario[SKey::IS_ACTIVE] | true;
+    const char *idStr = scenario[SKey::ID].as<const char *>();
     if (idStr)
     {
       uint16_t id = atoi(idStr);
@@ -441,11 +441,11 @@ void ScenarioManager::serialize(String &output) const
       }
       if (lr > 0)
       {
-        copy["lastRun"] = (long)lr;
+        copy[SKey::LAST_RUN] = (long)lr;
       }
       else
       {
-        copy["lastRun"] = (char *)nullptr;
+        copy[SKey::LAST_RUN] = (char *)nullptr;
       }
     }
   }
@@ -508,7 +508,7 @@ void ScenarioManager::check(time_t currentTime)
 
   for (JsonObject scenario : arr)
   {
-    const char *idStr = scenario["id"].as<const char *>();
+    const char *idStr = scenario[SKey::ID].as<const char *>();
     if (!idStr)
       continue;
 
@@ -519,13 +519,13 @@ void ScenarioManager::check(time_t currentTime)
 
     // Skip disabled scenarios. Absent flag = active (backward compat). Re-arm
     // fired state so it fires cleanly on the next rising edge once re-enabled.
-    if (!(scenario["isActive"] | true))
+    if (!(scenario[SKey::IS_ACTIVE] | true))
     {
       rs->fired = false;
       continue;
     }
 
-    JsonArray conditions = scenario["conditions"];
+    JsonArray conditions = scenario[SKey::CONDITIONS];
     bool allMatch = evaluateConditions(conditions, &timeInfo, currentTime,
                                        sensorCache, sensorCacheCount);
 
@@ -538,7 +538,7 @@ void ScenarioManager::check(time_t currentTime)
     // re-opens it. duration >= repeatInterval -> effectively always on (the
     // re-fire is a no-op while the timer is live); duration < repeatInterval ->
     // pulses on for `duration`, off for `repeatInterval - duration`.
-    int repeatInterval = scenario["repeatInterval"] | 0;
+    int repeatInterval = scenario[SKey::REPEAT_INTERVAL] | 0;
     bool shouldFire = allMatch &&
                       (!rs->fired ||
                        (repeatInterval > 0 && (currentTime - rs->lastRun) >= repeatInterval));
@@ -546,14 +546,14 @@ void ScenarioManager::check(time_t currentTime)
     if (shouldFire)
     {
       DEBUG_SCENARIO("Firing scenario '%s' (id=%s)\n",
-                     scenario["name"].as<const char *>(), idStr);
+                     scenario[SKey::NAME].as<const char *>(), idStr);
 
-      JsonArray actions = scenario["actions"];
+      JsonArray actions = scenario[SKey::ACTIONS];
       executeActions(actions, currentTime);
 
       char det[96];
       snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
-               idStr, scenario["name"].as<const char *>());
+               idStr, scenario[SKey::NAME].as<const char *>());
       Mqtt.publishEvent(LogLevel::INFO, LogEvent::SCENARIO_FIRE, det);
 
       rs->lastRun = currentTime;
@@ -571,26 +571,26 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
 {
   for (JsonObject cond : conditions)
   {
-    const char *type = cond["type"];
+    const char *type = cond[SKey::TYPE];
     if (!type)
       return false; // Malformed condition — fail safe (never deref a null type)
 
-    if (strcmp(type, "time") == 0)
+    if (strcmp(type, SVal::TIME) == 0)
     {
-      int hour = cond["hour"];
-      int minute = cond["minute"];
+      int hour = cond[SKey::HOUR];
+      int minute = cond[SKey::MINUTE];
       if (timeInfo->tm_hour != hour || timeInfo->tm_min != minute)
       {
         return false;
       }
     }
-    else if (strcmp(type, "timeRange") == 0)
+    else if (strcmp(type, SVal::TIME_RANGE) == 0)
     {
       // Start-inclusive, end-exclusive window in minutes-of-day. When start >=
       // end the window wraps past midnight (e.g. 22:00-06:00). This is a gate:
       // the engine's edge detection fires the scenario once on window entry.
-      int startMins = (int)cond["startHour"] * 60 + (int)cond["startMinute"];
-      int endMins = (int)cond["endHour"] * 60 + (int)cond["endMinute"];
+      int startMins = (int)cond[SKey::START_HOUR] * 60 + (int)cond[SKey::START_MINUTE];
+      int endMins = (int)cond[SKey::END_HOUR] * 60 + (int)cond[SKey::END_MINUTE];
       int nowMins = timeInfo->tm_hour * 60 + timeInfo->tm_min;
       bool inRange = (startMins < endMins)
                          ? (nowMins >= startMins && nowMins < endMins)
@@ -600,20 +600,20 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
         return false;
       }
     }
-    else if (strcmp(type, "dayOfWeek") == 0)
+    else if (strcmp(type, SVal::DAY_OF_WEEK) == 0)
     {
-      JsonArray days = cond["days"];
+      JsonArray days = cond[SKey::DAYS];
       int wday = timeInfo->tm_wday; // 0=Sun, 6=Sat
       if (!days[wday].as<bool>())
       {
         return false;
       }
     }
-    else if (strcmp(type, "sensorValue") == 0)
+    else if (strcmp(type, SVal::SENSOR_VALUE) == 0)
     {
-      const char *sensorId = cond["sensorId"];
-      const char *op = cond["operator"];
-      float threshold = cond["value"].as<float>();
+      const char *sensorId = cond[SKey::SENSOR_ID];
+      const char *op = cond[SKey::OPERATOR];
+      float threshold = cond[SKey::VALUE].as<float>();
 
       uint8_t addr = Modules.addrForUid(sensorId);
       if (addr == 0)
@@ -622,17 +622,17 @@ bool ScenarioManager::evaluateConditions(const JsonArray &conditions, const stru
       if (!readSensorCached(addr, reading, cache, cacheCount))
         return false;
 
-      if (strcmp(op, "gt") == 0)
+      if (strcmp(op, SVal::OP_GT) == 0)
       {
         if (!(reading > threshold))
           return false;
       }
-      else if (strcmp(op, "lt") == 0)
+      else if (strcmp(op, SVal::OP_LT) == 0)
       {
         if (!(reading < threshold))
           return false;
       }
-      else if (strcmp(op, "eq") == 0)
+      else if (strcmp(op, SVal::OP_EQ) == 0)
       {
         if (reading != threshold)
           return false;
@@ -682,12 +682,12 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
 {
   for (JsonObject action : actions)
   {
-    const char *type = action["type"] | "relay"; // default for backward compat
+    const char *type = action[SKey::TYPE] | SVal::RELAY; // default for backward compat
 
-    if (strcmp(type, "relay") == 0)
+    if (strcmp(type, SVal::RELAY) == 0)
     {
-      uint8_t relayId = action["relayId"];
-      const char *state = action["state"];
+      uint8_t relayId = action[SKey::RELAY_ID];
+      const char *state = action[SKey::STATE];
       if (!state)
         continue; // Malformed action — skip (never deref a null state)
 
@@ -711,9 +711,9 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         continue;
       }
 
-      if (strcmp(state, "on") == 0)
+      if (strcmp(state, SVal::ON) == 0)
       {
-        int duration = action["duration"];
+        int duration = action[SKey::DURATION];
         if (duration > MAX_SCENARIO_DURATION_SEC)
         {
           duration = MAX_SCENARIO_DURATION_SEC;
@@ -749,7 +749,7 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         DEBUG_SCENARIO("Relay %d OFF\n", relayId);
       }
     }
-    else if (strcmp(type, "callUrl") == 0)
+    else if (strcmp(type, SVal::CALL_URL) == 0)
     {
       if (_callUrlCount >= CALL_URL_QUEUE_SIZE)
       {
@@ -757,10 +757,10 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         continue;
       }
       CallUrlRequest &req = _callUrlQueue[_callUrlCount++];
-      const char *url = action["url"] | "";
-      const char *method = action["method"] | "GET";
-      const char *headers = action["headers"] | "";
-      const char *body = action["body"] | "";
+      const char *url = action[SKey::URL] | "";
+      const char *method = action[SKey::METHOD] | SVal::GET;
+      const char *headers = action[SKey::HEADERS] | "";
+      const char *body = action[SKey::BODY] | "";
       req.url.reserve(CALL_URL_MAX_URL_LEN);
       req.url = url;
       req.url = req.url.substring(0, CALL_URL_MAX_URL_LEN);
@@ -768,10 +768,10 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
       req.headers = String(headers).substring(0, CALL_URL_MAX_HEADERS_LEN);
       req.body = String(body).substring(0, CALL_URL_MAX_BODY_LEN);
     }
-    else if (strcmp(type, "driver") == 0)
+    else if (strcmp(type, SVal::DRIVER) == 0)
     {
-      const char *uid = action["uid"] | "";
-      uint8_t cmd = action["cmd"].as<int>();
+      const char *uid = action[SKey::UID] | "";
+      uint8_t cmd = action[SKey::CMD].as<int>();
       uint8_t addr = Modules.addrForUid(uid);
       if (addr == 0)
       {
@@ -783,21 +783,21 @@ void ScenarioManager::executeActions(const JsonArray &actions, time_t now)
         DEBUG_SCENARIO("driver action: commandModule failed for uid=%s cmd=%d\n", uid, cmd);
       }
     }
-    else if (strcmp(type, "display") == 0)
+    else if (strcmp(type, SVal::DISPLAY_ACT) == 0)
     {
       // Note: with repeatInterval set this re-applies every cycle. Give the
       // override a timeout >= repeatInterval so it refreshes seamlessly instead
       // of lapsing to the normal screen and snapping back (visible flicker).
-      int timeout = action["timeout"] | 0;
+      int timeout = action[SKey::TIMEOUT] | 0;
       if (timeout == 0)
       {
         DEBUG_SCENARIO("display action: timeout=0, skipping\n");
         continue;
       }
-      String r0 = action["row0"] | "";
-      String r1 = action["row1"] | "";
-      String r2 = action["row2"] | "";
-      String r3 = action["row3"] | "";
+      String r0 = action[SKey::ROW0] | "";
+      String r1 = action[SKey::ROW1] | "";
+      String r2 = action[SKey::ROW2] | "";
+      String r3 = action[SKey::ROW3] | "";
       Display.showOverride(r0, r1, r2, r3, (uint32_t)timeout);
       DEBUG_SCENARIO("display action: override for %d sec\n", timeout);
     }
@@ -847,7 +847,7 @@ static int performCallUrl(HTTPClient &http, const CallUrlRequest &req)
   http.setTimeout(CALL_URL_TIMEOUT_MS);
   applyParsedHeaders(http, req.headers);
 
-  if (req.method == "POST")
+  if (req.method == SVal::POST)
   {
     http.addHeader("Content-Length", String(req.body.length()));
     return http.POST(req.body);
@@ -889,7 +889,7 @@ bool ScenarioManager::run(const char* id, time_t now)
   JsonArray arr = _doc.as<JsonArray>();
   JsonObject scenario = arr[idx];
 
-  JsonArray actions = scenario["actions"];
+  JsonArray actions = scenario[SKey::ACTIONS];
   executeActions(actions, now);
 
   // A manual run counts as a fire: record lastRun and set fired so check()
@@ -907,7 +907,7 @@ bool ScenarioManager::run(const char* id, time_t now)
 
   char det[96];
   snprintf(det, sizeof(det), "{\"id\":\"%s\",\"name\":\"%s\"}",
-           id, scenario["name"] | "");
+           id, scenario[SKey::NAME] | "");
   Mqtt.publishEvent(LogLevel::INFO, LogEvent::SCENARIO_FIRE, det);
 
   DEBUG_SCENARIO("Manual run of scenario id=%s\n", id);

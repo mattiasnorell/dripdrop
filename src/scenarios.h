@@ -12,6 +12,7 @@
 #include <ArduinoJson.h>
 #include "config.h"
 #include "types.h"
+#include "scenario_keys.h"
 
 // LittleFS file path for scenario storage
 constexpr const char *SCENARIOS_FILE = "/scenarios.json";
